@@ -1,0 +1,16 @@
+{
+  "name": "reconnectia-platform-samples",
+  "private": true,
+  "description": "Curated modules from the Reconnect.iA platform, with their unit tests.",
+  "type": "module",
+  "engines": {
+    "node": ">=20.9.0"
+  },
+  "scripts": {
+    "test": "node scripts/run-tests.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "tsx": "^4.20.0"
+  }
+}

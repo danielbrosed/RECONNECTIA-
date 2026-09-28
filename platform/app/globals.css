@@ -1,0 +1,172 @@
+@import "tailwindcss";
+
+/* ============================================================
+   Reconnect-iA · tokens marfil cálido + tinta
+   Sincronizado con shared/tokens.css y public-site/styles.css
+   ============================================================ */
+
+@theme {
+  /* Paleta papel cálido */
+  --color-paper: #F4F1EC;
+  --color-paper-alt: #EAE6DF;
+  --color-line: #D6D2CA;
+  --color-mute: #8B867E;
+  --color-ink: #161514;
+  --color-ink-soft: #292724;
+
+  /* Estado "aceptado" (calendario del formador): verde sobrio sobre marfil */
+  --color-ok: #2F6B4F;
+  --color-ok-soft: #E3EDE6;
+
+  /* Fuentes */
+  --font-sans: "Inter", "Switzer", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-display: "Switzer", "Inter", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", "IBM Plex Mono", ui-monospace, monospace;
+
+  /* Tracking */
+  --tracking-eyebrow: 0.18em;
+  --tracking-button: 0.14em;
+  --tracking-display: -0.025em;
+
+  /* Easings */
+  --ease-text: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-cam: cubic-bezier(0.65, 0, 0.35, 1);
+  --ease-micro: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@layer base {
+  html, body {
+    background: var(--color-paper);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  *, *::before, *::after { box-sizing: border-box; }
+  img, video, svg { display: block; max-width: 100%; }
+  ::selection { background: var(--color-ink); color: var(--color-paper); }
+}
+
+@layer components {
+  .eyebrow {
+    font-family: var(--font-sans);
+    font-size: clamp(10px, 0.68vw, 12px);
+    text-transform: uppercase;
+    letter-spacing: var(--tracking-eyebrow);
+    color: var(--color-mute);
+    font-weight: 500;
+  }
+
+  .h-display {
+    font-family: var(--font-display);
+    font-size: clamp(56px, 9vw, 144px);
+    line-height: 0.92;
+    letter-spacing: var(--tracking-display);
+    font-weight: 500;
+  }
+
+  .h-section {
+    font-family: var(--font-display);
+    font-size: clamp(36px, 5vw, 72px);
+    line-height: 1;
+    letter-spacing: var(--tracking-display);
+    font-weight: 500;
+  }
+
+  .h-card {
+    font-family: var(--font-display);
+    font-size: clamp(22px, 2vw, 30px);
+    line-height: 1.1;
+    letter-spacing: -0.012em;
+    font-weight: 500;
+  }
+
+  .btn-ghost {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 14px 24px;
+    border: 1px solid var(--color-ink);
+    background: transparent;
+    color: var(--color-ink);
+    font-size: clamp(10px, 0.68vw, 12px);
+    text-transform: uppercase;
+    letter-spacing: var(--tracking-button);
+    text-decoration: none;
+    overflow: hidden;
+    isolation: isolate;
+    transition: color 0.25s var(--ease-micro);
+    font-weight: 500;
+    cursor: pointer;
+  }
+  .btn-ghost::before {
+    content: "";
+    position: absolute; inset: 0;
+    background: var(--color-ink);
+    transform: scaleY(0);
+    transform-origin: bottom;
+    transition: transform 0.6s var(--ease-micro);
+    z-index: -1;
+  }
+  .btn-ghost:hover { color: var(--color-paper); }
+  .btn-ghost:hover::before { transform: scaleY(1); }
+
+  .btn-solid {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 14px 24px;
+    background: var(--color-ink);
+    color: var(--color-paper);
+    border: 1px solid var(--color-ink);
+    font-size: clamp(10px, 0.68vw, 12px);
+    text-transform: uppercase;
+    letter-spacing: var(--tracking-button);
+    text-decoration: none;
+    font-weight: 500;
+    cursor: pointer;
+    transition: opacity 0.2s var(--ease-micro);
+  }
+  .btn-solid:hover { opacity: 0.85; }
+  .btn-solid:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  .card {
+    background: var(--color-paper);
+    border: 1px solid var(--color-ink);
+    box-shadow: 0 4px 0 var(--color-ink);
+    padding: 22px;
+  }
+
+  .input-field {
+    width: 100%;
+    padding: 12px 14px;
+    background: var(--color-paper);
+    border: 1px solid var(--color-line);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    font-size: 15px;
+    transition: border-color 0.15s var(--ease-micro);
+  }
+  .input-field:focus {
+    outline: none;
+    border-color: var(--color-ink);
+  }
+  .input-field:disabled { opacity: 0.5; }
+
+  .label-field {
+    display: block;
+    font-size: clamp(10px, 0.68vw, 12px);
+    text-transform: uppercase;
+    letter-spacing: var(--tracking-eyebrow);
+    color: var(--color-mute);
+    font-weight: 500;
+    margin-bottom: 6px;
+  }
+
+  .divider {
+    height: 1px;
+    background: var(--color-line);
+    width: 100%;
+  }
+}

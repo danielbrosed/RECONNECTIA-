@@ -1,0 +1,47 @@
+{
+  "$comment": "Single source of truth for the progress card and the README progress/roadmap sections. Edit, then run: node tools/progress.mjs",
+  "product": "Reconnect.iA",
+  "updated": "2026-09-28",
+  "release": {
+    "label": "V0",
+    "status": "In production",
+    "since": "2026-06-07",
+    "next": "V1"
+  },
+  "metrics": [
+    {
+      "id": "v0-scope",
+      "label": "V0 features built",
+      "done": 268,
+      "total": 324,
+      "unit": "features",
+      "note": "Every requested feature mapped per role and area (feature map of 2026-09-17)."
+    },
+    {
+      "id": "programme",
+      "label": "Hardening & completion programme",
+      "done": 1,
+      "total": 17,
+      "unit": "work packages",
+      "segmented": true,
+      "note": "Work packages from access & session security to the V1 feature set."
+    }
+  ],
+  "stats": [
+    { "value": "6", "label": "user roles" },
+    { "value": "135", "label": "pages" },
+    { "value": "68", "label": "server-action modules" },
+    { "value": "59", "label": "data models" },
+    { "value": "38", "label": "migrations" },
+    { "value": "73k", "label": "lines of TypeScript" }
+  ],
+  "milestones": [
+    { "date": "2026-05", "title": "Foundation", "status": "done", "detail": "Next.js 16 + Prisma + Auth.js scaffold, first three roles, job offers, courses and affinity matching, ACAT and ECOE in the student profile, trainer role." },
+    { "date": "2026-06", "title": "Public launch", "status": "done", "detail": "Live on 7 June. Unified contextual navigation, legal pages, residence CRM for training entities, trainer ↔ course matching, branded transactional email." },
+    { "date": "2026-07", "title": "Security audit I", "status": "done", "detail": "Audit remediation (evaluation paywall, atomic writes, SSO, email verification), training modalities, catalogue filters, supervised labour profile." },
+    { "date": "2026-08", "title": "Security audit II · real data", "status": "done", "detail": "Second audit fixed and deployed, password recovery, training-entity portal, bulk student import, move from demo data to the real catalogue." },
+    { "date": "2026-09", "title": "124-course catalogue · WP1", "status": "done", "detail": "Full CeSeA Formación catalogue imported with drift checks. Work package 1: versioned sessions, purpose-bound tokens, trusted client IP, entity validation, tests and acceptance harness." },
+    { "date": "next", "title": "WP2 to WP17", "status": "active", "detail": "Next work packages towards V1: onboarding and validation flows for every role, course scheduling and delivery, reporting." },
+    { "date": "later", "title": "V1", "status": "planned", "detail": "Semantic matching, in-app messaging, online payments and offer packs, automated ECOE validation, full back office, mobile app." }
+  ]
+}

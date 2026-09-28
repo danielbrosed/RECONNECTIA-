@@ -1,0 +1,20 @@
+Copyright (c) 2026 Daniel Brosed. All rights reserved.
+
+This repository is a portfolio case study. It documents the design and
+engineering of Reconnect.iA (https://app.reconnectia.es), operated by
+CeSeA Sistemas.
+
+Contents:
+  - platform/  a curated selection of platform modules and their tests.
+               The rest of the application source is NOT included.
+  - docs/      screenshots of the product with made-up data, brand assets
+               and generated progress cards.
+
+The Reconnect.iA name, logo and brand assets and the screenshots remain the property of their owners and are
+provided here for the sole purpose of illustrating the work described in
+README.md.
+
+No permission is granted to deploy, reuse, redistribute, sublicense or
+repurpose the code, the imagery, the Reconnect.iA name or its brand assets.
+The written case study (README.md, SECURITY.md, platform/README.md) may be
+quoted with attribution to the author.

@@ -1,0 +1,1519 @@
+// =============================================================
+// Reconnect-iA · Prisma schema
+// =============================================================
+// Backend: PostgreSQL (Supabase self-hosted).
+// El schema `public` lo gestiona Prisma. CESEA Formación vive
+// en schema `cesea` (gestionado fuera de Prisma, ver
+// CESEA FORMACION/migrations/*.sql).
+//
+// Arrays JSON-string heredados de la era SQLite: se mantienen
+// como `String` literal para no reescribir parseJsonArray/toJsonArray
+// (los helpers en lib/roles.ts ya funcionan así).
+// =============================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// -----------------------------
+// Usuarios y roles
+// -----------------------------
+// role: STUDENT | COMPANY | ENTITY | ADMIN
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  emailVerified DateTime?
+  name          String
+  role          String // STUDENT | COMPANY | ENTITY | ADMIN
+  passwordHash  String? // null si solo magic link
+  avatar        String?
+  location      String?
+  languages     String    @default("[]") // JSON: string[]
+  createdAt     DateTime  @default(now())
+  verified      Boolean   @default(false)
+  onboardedAt   DateTime? // primer login completado (empresa: dispara el aterrizaje en Publicar empleo)
+  // Versión de sesión (H2). Va dentro del JWT al entrar y se compara en cada
+  // petición (auth.ts): cambiar la contraseña la incrementa y las sesiones
+  // abiertas con la versión anterior dejan de valer. Nace en 0 y los tokens
+  // emitidos antes de existir la columna se tratan como 0.
+  sessionVersion Int       @default(0)
+
+  // Perfiles especializados (solo uno se rellena según role)
+  student StudentProfile?
+  trainer TrainerProfile?
+  company CompanyProfile?
+  entity  EntityProfile?
+
+  // Membresías en plataformas internas de empresas (multi-tenant white-label)
+  platformMemberships InternalPlatformMembership[]
+
+  // Aplicaciones a ofertas (lado alumno)
+  applications Application[]
+
+  // Cartera de SkillsPoints (1:1, se crea on-demand al primer uso)
+  wallet SkpWallet?
+
+  // Intercambios de tiempo 1:1 entre alumnos (banco del tiempo)
+  tpExchangesGiven    TpExchange[] @relation("TpGiver")
+  tpExchangesReceived TpExchange[] @relation("TpReceiver")
+
+  // Ofertas públicas de tiempo en la comunidad
+  tpOffers TpOffer[] @relation("TpOfferGiver")
+
+  // Transferencias dirigidas de Skp (empresa/entidad → alumno)
+  skpTransfersSent     SkpTransfer[] @relation("SkpTransferFrom")
+  skpTransfersReceived SkpTransfer[] @relation("SkpTransferTo")
+
+  // Peticiones de cobertura de evaluación (alumno pide, empresa paga con Skp)
+  evalRequestsAsStudent EvalRequest[] @relation("EvalRequestStudent")
+  evalRequestsAsCompany EvalRequest[] @relation("EvalRequestCompany")
+
+  // Auth.js relations
+  accounts Account[]
+  sessions Session[]
+}
+
+model StudentProfile {
+  userId       String  @id
+  user         User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  headline     String?
+  summary      String?
+  experience   String  @default("[]") // JSON: [{role, company, start, end, description}]
+  education    String  @default("[]") // JSON: [{degree, institution, start, end}]
+  softSkills   String  @default("[]") // JSON: string[]
+  competencies String  @default("[]") // JSON: [{name, level, validatedByEcoe}]
+  sectors      String  @default("[]") // JSON: string[] de lib/sectors SECTORS (legacy, ronda 2)
+  servicios    String  @default("[]") // JSON: string[] de lib/servicios SERVICIOS (ronda 6)
+
+  // Perfil laboral (datos estilo CRM, listas cerradas en lib/labor.ts).
+  // REGLA: campo con valor = bloqueado para el alumno (solo completa vacíos);
+  // cambiar un campo bloqueado exige solicitud aprobada por administración
+  // (ProfileChangeRequest). El bloqueo se DERIVA del valor, sin flag aparte.
+  dni                  String? // DNI/NIF o NIE, normalizado en mayúsculas
+  phone                String? // móvil ES normalizado (9 dígitos)
+  birthDate            DateTime?
+  educationLevel       String? // código de EDUCATION_LEVELS
+  professionalCategory String? // código de PROFESSIONAL_CATEGORIES
+  cotizationGroup      String? // "1".."11" (COTIZATION_GROUPS)
+  ssAccount            String? // cuenta de cotización SS (11 dígitos)
+  costPerHourCents     Int? // coste/hora en céntimos (criterio fundaeCreditCents)
+  workShift            String? // MANANA | TARDE | NOCHE (WORK_SHIFTS)
+  estancia             String? // nombre del centro o residencia donde trabaja
+  workCenterId         String? // WorkCenter.id cuando el centro está en el catálogo (sin FK)
+
+  // Currículum externo: CV y certificados que el alumno aporta de fuera de la red
+  externalCvUrl      String?
+  externalCvFilename String?
+  externalCertifs    String  @default("[]") // JSON: [{name, issuer, date, url, hours, kind, fileUrl, fileName}]
+
+  // Visibilidad opt-in: por defecto privado. El alumno decide compartir.
+  shareAcatWithCompanies Boolean @default(false)
+  shareEcoeWithCompanies Boolean @default(false)
+  shareEropWithCompanies Boolean @default(false)
+
+  // Búsqueda de talento de empresas (OPT-OUT: por defecto visible; puede ocultarse).
+  hideFromTalentSearch Boolean @default(false)
+
+  enrollments     CourseEnrollment[]
+  ecoeResults     EcoeResult[]
+  acatEvaluations AcatEvaluation[]
+  eropEvaluations EropEvaluation[]
+}
+
+// Resultado ECOE externo subido por el alumno (con PDF/docx/xlsx adjunto
+// + formulario manual con los datos clave).
+model EcoeResult {
+  id            String         @id @default(cuid())
+  studentId     String
+  student       StudentProfile @relation(fields: [studentId], references: [userId], onDelete: Cascade)
+  examName      String
+  examDate      DateTime
+  notaFinal     Float
+  porcentaje    Float?
+  aprobado      Boolean
+  stations      String         @default("[]") // JSON: [{name, score, max}]
+  observaciones String?
+  fileUrl       String // ruta servida vía /api/uploads/ecoe/<file>
+  fileName      String
+  uploadedAt    DateTime       @default(now())
+
+  // Pago (opcional, futuro): "SKP" | "EUR" | "FREE" | null. Sin gating todavía.
+  paidWith          String?
+  paidTransactionId String? @unique
+}
+
+// Una evaluación ACAT. Estructura alineada con acat-core.js (sección 5).
+model AcatEvaluation {
+  id                 String         @id @default(cuid())
+  studentId          String
+  student            StudentProfile @relation(fields: [studentId], references: [userId], onDelete: Cascade)
+  evalDate           String // "YYYY-MM"
+  nat                String // JSON: {R,E,P,N,A}
+  rol                String // JSON: {R,E,P,N,A}
+  energy             Int
+  computedProfile    String // JSON: salida de buildProfile() cacheada
+  consentVersion     String         @default("1.0")
+  consentAcceptedAt  DateTime
+  directoryConsent   Boolean        @default(false)
+  directoryConsentAt DateTime?
+  createdAt          DateTime       @default(now())
+
+  // Pago (opcional, futuro)
+  paidWith          String?
+  paidTransactionId String? @unique
+}
+
+// Una evaluación EROP (instrumento proyectivo: Persona Bajo la Lluvia + Wartegg).
+// No es un test puntuado: guarda las dos láminas (PNG en Storage privado) y las
+// reflexiones. Apoyo a la conversación, nunca criterio de decisión.
+model EropEvaluation {
+  id                 String         @id @default(cuid())
+  studentId          String
+  student            StudentProfile @relation(fields: [studentId], references: [userId], onDelete: Cascade)
+  evalDate           String // "YYYY-MM"
+  rainUrl            String // ruta servida vía /api/uploads/erop/<file>
+  rainFileName       String
+  warteggUrl         String
+  warteggFileName    String
+  warteggOrder       String         @default("[]") // JSON: int[] (orden de cierre de recuadros)
+  reflections        String         @default("{}") // JSON: { "rain-1": "...", "wartegg-3": "..." }
+  consentVersion     String         @default("1.0")
+  consentAcceptedAt  DateTime
+  directoryConsent   Boolean        @default(false)
+  directoryConsentAt DateTime?
+  createdAt          DateTime       @default(now())
+
+  // Pago (opcional, futuro)
+  paidWith          String?
+  paidTransactionId String? @unique
+}
+
+model CompanyProfile {
+  userId         String  @id
+  user           User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  legalName      String
+  slug           String  @unique
+  sector         String? // legacy: sector primario en texto libre
+  sectors        String  @default("[]") // JSON: string[] de SECTORS (legacy, lib/sectors.ts)
+  servicios      String  @default("[]") // JSON: string[] de lib/servicios SERVICIOS (ronda 6)
+  size           String? // legacy free-text
+  employeesRange String? // "1-10" | "11-50" | "51-200" | "201-500" | "500+"
+  foundedYear    Int?
+  description    String?
+  logo           String? // ruta /api/uploads/logo/<userId>-<ts>.<ext>
+  cover          String? // ruta /api/uploads/cover/<userId>-<ts>.<ext>
+
+  website   String?
+  linkedin  String?
+  instagram String?
+  twitter   String?
+
+  city         String?
+  region       String?
+  country      String? @default("ES")
+  contactEmail String?
+  contactPhone String?
+
+  // Personas de la empresa. `User.name` guarda el representante legal (es quien
+  // firma y da nombre a la cuenta); RRHH es la persona de gestión formativa.
+  hrContactName String?
+
+  // FUNDAE (V0): datos mínimos para la formación bonificada.
+  cif               String?
+  fundaeCreditCents Int? // crédito formativo disponible, en céntimos
+  fundaeDocs        String  @default("[]") // JSON: [{fileUrl, fileName, label, uploadedAt}] (contrato de encomienda y anexos)
+
+  // Plan formativo: entidades marcadas con estrella por la empresa.
+  trustedEntityIds String @default("[]") // JSON: string[] de EntityProfile.userId
+
+  // Flags: verified = proveedor revisado/destacado; hasInternalPlatform = tiene panel embebido.
+  verified            Boolean @default(false)
+  hasInternalPlatform Boolean @default(false)
+  panelUrl            String? // ej. "/proveedor/cesea-formacion/panel"
+  internalSupabaseUid String? // auth.users.id en Supabase para el bridge SSO (CESEA)
+
+  jobs Job[]
+
+  // Plataforma de formación interna white-label (1:1). CESEA es la primera instancia.
+  platform InternalPlatform?
+
+  // Monetización: plan/suscripción de publicación de ofertas (1:1).
+  subscription CompanyJobSubscription?
+
+  // Cursos propios de la empresa (formación interna nativa).
+  companyCourses CompanyCourse[]
+}
+
+model EntityProfile {
+  userId         String  @id
+  user           User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  legalName      String
+  type           String? // "preferred" para CeSeA Formación
+  accreditations String  @default("[]") // JSON: string[]
+
+  // Una misma organización puede tener perfil de ENTIDAD y de EMPRESA a la vez.
+  // CESEA es el caso: como empresa publica su catálogo (CompanyCourse, con sus
+  // contenidos y su ficha pública en /proveedor/<slug>), y como entidad recibe
+  // las peticiones de formación de las empresas y programa las imparticiones.
+  // Este campo dice "esta entidad y esta empresa son la misma casa", y evita
+  // tener que duplicar el catálogo en las dos tablas para que se vea en ambos
+  // sitios. Sin FK a propósito (criterio del repo: additividad pura).
+  linkedCompanyUserId String? // CompanyProfile.userId
+
+  // Validación del alta por ADMINISTRACIÓN (H4). El registro de entidades es
+  // público: hasta que administración valida, la entidad solo ve
+  // /portal/pendiente y ninguna acción del portal se ejecuta (lib/guard.ts,
+  // requireEntidadValidada). El estado se DERIVA de las fechas con
+  // lib/entidad/validacion.ts (estadoValidacionEntidad): al validar se limpian
+  // rejectedAt/rejectionReason; al rechazar se limpian validatedAt/validatedBy.
+  // Las entidades anteriores a la regla quedaron validadas en la migración
+  // 20260925130000_entidad_validacion con validatedBy = "migracion".
+  validatedAt     DateTime?
+  validatedBy     String? // User.id del administrador, o "migracion"; sin FK a propósito
+  rejectedAt      DateTime?
+  rejectionReason String?
+
+  courses     Course[]
+  residencias Residencia[]
+
+  @@index([linkedCompanyUserId])
+}
+
+// Formador independiente. Cuarto rol — valida cursos, ofrece su CV y agenda
+// dentro de la red. Puede aparecer en la comunidad ofreciendo micro-sesiones.
+model TrainerProfile {
+  userId             String   @id
+  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  headline           String?
+  summary            String?
+  specialties        String   @default("[]") // JSON: string[]
+  sectors            String   @default("[]") // JSON: string[] de lib/sectors SECTORS (legacy, ronda 2)
+  servicios          String   @default("[]") // JSON: string[] de lib/servicios SERVICIOS (ronda 6)
+  province           String? // provincia canónica de lib/geo PROVINCES
+  ratePerHourCents   Int? // tarifa por hora en céntimos; ordena el listado de la entidad
+  // Alta validada por una entidad formativa. REGLA V0: un formador no entra en
+  // circulación (deck de formaciones, listados) hasta que una entidad lo valida.
+  // Se deriva de TrainerEntityLink pero se guarda aquí resuelto para no hacer un
+  // join en cada comprobación de acceso.
+  validatedAt         DateTime?
+  validatedByEntityId String? // EntityProfile.userId de quien lo validó; sin FK
+  externalCvUrl      String?
+  externalCvFilename String?
+  // Agenda: JSON de eventos. Conviven el shape legado {date,title,durationMin,notes}
+  // y el nuevo del calendario del resumen {id,date,title,timeFrom,timeTo,kind,notes}.
+  agenda             String   @default("[]")
+  shareWithCompanies Boolean  @default(false)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  admin TrainerAdminData?
+}
+
+// Ficha administrativa y fiscal del formador: lo que la entidad necesita para
+// contratarle y pagarle. Es el contenido del cuadro de formadores que CESEA
+// gestiona fuera de la plataforma.
+//
+// POR QUÉ EN TABLA APARTE Y NO EN TrainerProfile. Es una decisión de control de
+// acceso, no de orden. `TrainerProfile` se lee en el tablero de formaciones, en
+// los listados de la entidad y en la ficha que ven las empresas. Si el número de
+// cuenta y el documento viven ahí, cualquier `select` descuidado los saca por
+// pantalla. En una tabla aparte hay que pedirlos a propósito.
+//
+// SOLO los ve la entidad propietaria y la administración. Nunca las empresas
+// cliente, nunca otros formadores, nunca el alumnado.
+model TrainerAdminData {
+  userId  String         @id
+  trainer TrainerProfile @relation(fields: [userId], references: [userId], onDelete: Cascade)
+
+  dni          String? // NIF/NIE personal (en el cuadro de CESEA viene como "CIF")
+  birthDate    DateTime?
+  phone        String?
+  address      String?
+  postalCode   String?
+  city         String?
+  // Provincia tal cual la escribe la entidad. NO se valida contra lib/geo
+  // PROVINCES a propósito: el cuadro real trae valores como "Irlanda" o
+  // "Aragón", y perder el dato original para encajarlo en una lista cerrada
+  // sería peor que guardarlo como viene. La provincia canónica, cuando existe,
+  // va en TrainerProfile.province, que es la que usa el cálculo de distancia.
+  province     String?
+  irpfPercent  Int? // retención aplicable, en puntos porcentuales
+  iban         String? // cuenta de abono
+  contractType String? // "Indefinido" | "Obra y servicio" | ...
+
+  // Origen y fecha del cuadro del que salió esta ficha, para saber a qué
+  // versión corresponde cuando llegue la siguiente.
+  sourceFile String?
+  updatedAt  DateTime @updatedAt
+}
+
+// =============================================================
+// Plataformas internas multi-tenant (white-label)
+// =============================================================
+// Una empresa cliente puede tener su propia plataforma de formación interna,
+// cuyos datos viven en un schema Postgres dedicado (p.ej. "cesea"), gestionado
+// FUERA de Prisma (ver CESEA FORMACION/migrations/*.sql). CESEA Formación es la
+// primera instancia. Estas dos tablas (en `public`) son el ancla: mapean la
+// empresa propietaria, su schema físico, su branding white-label y la identidad
+// de cada usuario de Reconnect-iA dentro del tenant.
+//   · InternalPlatform           → una fila por empresa con plataforma interna.
+//   · InternalPlatformMembership → enlace User Reconnect ↔ identidad en el tenant
+//     (generaliza el antiguo CompanyProfile.internalSupabaseUid, que solo cubría
+//     al owner, a cualquier usuario/rol/tenant).
+// =============================================================
+
+model InternalPlatform {
+  id        String         @id @default(cuid())
+  companyId String         @unique
+  company   CompanyProfile @relation(fields: [companyId], references: [userId], onDelete: Cascade)
+
+  slug       String @unique // = CompanyProfile.slug (denormalizado para lookup directo)
+  schemaName String @unique // schema Postgres físico: "cesea", "empresa2"…
+  status     String @default("ACTIVE") // PROVISIONING | ACTIVE | SUSPENDED | ARCHIVED
+
+  // Branding white-label (sustituye logos/colores hardcodeados del panel)
+  brandName    String?
+  logoUrl      String?
+  faviconUrl   String?
+  primaryColor String? @default("#161514")
+  accentColor  String?
+  customCss    String?
+
+  // Capacidades por tenant (JSON: { "diplomas": true, "bitacora": true, … })
+  features String @default("{}")
+
+  // Embed / SSO
+  embedMode     String  @default("IFRAME") // IFRAME | NATIVE (rebuild nativo)
+  panelBasePath String? // "/cesea/index.html" mientras sea iframe
+  jwtAudience   String  @default("authenticated")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  memberships InternalPlatformMembership[]
+
+  @@index([status])
+}
+
+model InternalPlatformMembership {
+  id         String           @id @default(cuid())
+  platformId String
+  platform   InternalPlatform @relation(fields: [platformId], references: [id], onDelete: Cascade)
+  userId     String
+  user       User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  tenantRole  String // "alumno" | "formador" | "superadmin" (= role_type del schema tenant)
+  supabaseUid String // auth.users.id; mismo que <schema>.usuarios.id
+  tenantRowId String? // <schema>.formadores.id / <schema>.alumnos.id cuando aplica
+
+  status     String    @default("ACTIVE") // ACTIVE | PENDING | REVOKED
+  linkedAt   DateTime  @default(now())
+  lastSeenAt DateTime?
+
+  @@unique([platformId, userId])
+  @@index([userId])
+  @@index([platformId, tenantRole])
+}
+
+// -----------------------------
+// Cursos
+// -----------------------------
+// modality: ONLINE | IN_PERSON | HYBRID
+// status:   DRAFT | PUBLISHED | CLOSED
+model Course {
+  id                  String        @id @default(cuid())
+  // Código corto legible del catálogo ("CUR-0001"), correlativo global. El id es
+  // un cuid que no se puede dictar por teléfono; este sí. Nullable porque las
+  // filas anteriores a la ronda 6 se rellenan por backfill.
+  code                String?       @unique
+  entityId            String
+  entity              EntityProfile @relation(fields: [entityId], references: [userId])
+  title               String
+  description         String
+  hours               Int
+  modality            String // ONLINE | IN_PERSON | HYBRID
+  location            String?
+  sector              String? // legacy (ronda 2): sector único de lib/sectors SECTORS
+  servicios           String        @default("[]") // JSON: string[] de lib/servicios SERVICIOS (ronda 6)
+  city                String? // ciudad/provincia, para la distancia en cursos presenciales
+  price               Float?
+  priceSkp            Int? // tarifa en SkillsPoints; si null, se calcula como Math.round(price * SKP_PER_EUR)
+  startDate           DateTime
+  capacity            Int
+  bonifiable          Boolean       @default(false)
+  competenciesAwarded String        @default("[]") // JSON: string[]
+  status              String        @default("PUBLISHED") // DRAFT | PUBLISHED | CLOSED
+  createdAt           DateTime      @default(now())
+
+  // Plantilla de catálogo de la que sale esta convocatoria, si viene de una.
+  // Course es la CONVOCATORIA (tiene fecha y plazas reales); la plantilla con el
+  // temario vive en CompanyCourse. Sin FK (additividad pura).
+  companyCourseId String?
+
+  enrollments CourseEnrollment[]
+
+  @@index([companyCourseId])
+}
+
+model CourseEnrollment {
+  id          String         @id @default(cuid())
+  courseId    String
+  studentId   String
+  course      Course         @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  student     StudentProfile @relation(fields: [studentId], references: [userId], onDelete: Cascade)
+  enrolledAt  DateTime       @default(now())
+  completedAt DateTime?
+
+  @@unique([courseId, studentId])
+}
+
+// -----------------------------
+// Ofertas y candidaturas
+// -----------------------------
+// mode:   FREE | PACK
+// status: PENDING | REVIEWED | SHORTLISTED | REJECTED | HIRED
+model Job {
+  id                   String         @id @default(cuid())
+  companyId            String
+  company              CompanyProfile @relation(fields: [companyId], references: [userId])
+  title                String
+  description          String
+  location             String
+  contractType         String // indefinido | temporal | practicas
+  hoursPerWeek         Int
+  requiredCompetencies String         @default("[]") // JSON: string[]
+  contactEmail         String? // "Contactar a": recibe por email cada candidatura nueva
+  mode                 String         @default("FREE") // FREE | PACK
+  publishedAt          DateTime       @default(now())
+  closedAt             DateTime?
+
+  // Monetización (modelo presupuesto). Aditivo: todo nullable/con default → las
+  // ofertas existentes siguen igual (free, sin expiración).
+  expiresAt     DateTime? // null = no expira (free / piloto)
+  budgetCents   Int       @default(0) // presupuesto de visibilidad asignado a esta oferta
+  spentCents    Int       @default(0) // gastado (mock por ahora)
+  isFeatured    Boolean   @default(false)
+  featuredUntil DateTime?
+  planCode      String? // snapshot del plan con el que se publicó
+
+  applications Application[]
+  metrics      JobMetrics[]
+}
+
+model Application {
+  id            String   @id @default(cuid())
+  jobId         String
+  candidateId   String
+  job           Job      @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  candidate     User     @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  affinityScore Int // 0-100
+  status        String   @default("PENDING") // PENDING | REVIEWED | SHORTLISTED | REJECTED | HIRED
+  appliedAt     DateTime @default(now())
+
+  @@unique([jobId, candidateId])
+}
+
+// Desbloqueos de la búsqueda de talento (gating estilo Tinder). Sin FK
+// (additividad pura). kind: CARD_FREE (cupo gratis por ventana de 6 h) |
+// FICHA (acceso a la ficha completa, pagado en Skp).
+model TalentUnlock {
+  id        String   @id @default(cuid())
+  companyId String // User.id de la empresa; sin FK
+  studentId String // User.id del alumno; sin FK
+  kind      String // CARD_FREE | FICHA
+  skpCost   Int      @default(0)
+  txId      String? // SkpTransaction.id del débito, si lo hubo
+  createdAt DateTime @default(now())
+
+  @@unique([companyId, studentId, kind])
+  @@index([companyId, createdAt])
+}
+
+// -----------------------------
+// Auth.js v5 — Prisma Adapter
+// -----------------------------
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// =============================================================
+// SkillsPoints (Skp) — moneda interna de la plataforma
+// =============================================================
+// Reglas vivas en webapp/lib/skp/core.ts (TP_PER_SKP, SKP_PER_EUR).
+// Concepto:
+//   · TimePoints (TP): horas que un alumno aporta a otro en comunidad. 1h = 1 TP.
+//     Cuando un wallet acumula TP_PER_SKP (600) TP, se convierte automáticamente
+//     en 1 Skp gastable.
+//   · SkillsPoints (Skp): moneda gastable en evaluaciones (ECOE/ACAT/EROP) y
+//     cursos. Empresas y alumnos pueden comprarlos con €.
+//   · El balance del wallet es la suma de los deltas de SkpTransaction; las
+//     filas son inmutables (auditable).
+// =============================================================
+
+model SkpWallet {
+  id         String   @id @default(cuid())
+  userId     String   @unique
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  skpBalance Int      @default(0) // SkillsPoints gastables
+  tpBalance  Int      @default(0) // TimePoints sin convertir (solo alumnos en la práctica)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  transactions SkpTransaction[]
+}
+
+// Movimiento atómico de saldo. Inmutable.
+// kind ∈ {
+//   EARN_TP_GIVEN, EARN_TP_RECEIVED, CONVERT_TP_TO_SKP,
+//   PURCHASE_SKP_EUR, BONUS_SKP,
+//   SPEND_SKP_EVAL, SPEND_SKP_COURSE,
+//   SPEND_EUR_EVAL, SPEND_EUR_COURSE,
+//   REFUND_SKP, REFUND_EUR
+// }
+model SkpTransaction {
+  id        String    @id @default(cuid())
+  walletId  String
+  wallet    SkpWallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  kind      String
+  skpDelta  Int       @default(0) // signo: + entra, − sale
+  tpDelta   Int       @default(0)
+  eurAmount Float? // si la operación toca dinero real
+
+  // Referencias opcionales al objeto pagado/originado (denormalizadas).
+  refEvaluationKind String? // "ECOE" | "ACAT" | "EROP"
+  refEvaluationId   String?
+  refCourseId       String?
+  refExchangeId     String?
+
+  notes     String?
+  createdAt DateTime @default(now())
+
+  @@index([walletId, createdAt])
+}
+
+// Intercambio 1:1 de horas entre alumnos en la sección comunidad.
+// state: PROPOSED | ACCEPTED | COMPLETED | CANCELLED
+// Al state=COMPLETED genera 2 SkpTransaction (EARN_TP_GIVEN al giver,
+// EARN_TP_RECEIVED al receiver). 1 hora = 1 TP.
+model TpExchange {
+  // Camino feliz: PROPOSED → ACCEPTED → COMPLETED → VERIFIED.
+  // Disputa:      COMPLETED → DISPUTED (TP no se mueven, revisión admin).
+  // Cancelación:  PROPOSED/ACCEPTED → CANCELLED (sin movimiento).
+  // Auto-aprobación: a los 7 días en COMPLETED pasa a VERIFIED automáticamente.
+  // Movimiento de TP solo al pasar a VERIFIED:
+  //   giver  +hours TP (TP_GAINED_HELPING)
+  //   receiver -hours TP (TP_SPENT_RECEIVING, puede quedar negativo)
+  id            String    @id @default(cuid())
+  giverId       String
+  giver         User      @relation("TpGiver", fields: [giverId], references: [id], onDelete: Cascade)
+  receiverId    String
+  receiver      User      @relation("TpReceiver", fields: [receiverId], references: [id], onDelete: Cascade)
+  hours         Int
+  topic         String?
+  state         String    @default("PROPOSED")
+  createdAt     DateTime  @default(now())
+  completedAt   DateTime? // cuando giver marca "ya lo hice"
+  autoApproveAt DateTime? // completedAt + 7 días; verificación automática si no hay disputa
+  verifiedAt    DateTime? // momento del movimiento real de TP (manual o auto)
+  disputedAt    DateTime?
+  disputeReason String?
+
+  @@index([giverId])
+  @@index([receiverId])
+  @@index([state, autoApproveAt])
+}
+
+// Transferencia dirigida de SkillsPoints (empresa→alumno HIRED o entidad→alumno
+// inscrito en uno de sus cursos). Requiere aceptación del receptor.
+// state: PENDING | ACCEPTED | REJECTED | EXPIRED | CANCELLED
+// sourceKind: "HIRED" (sourceRefId = jobId) | "ENROLLMENT" (sourceRefId = courseId)
+// Flujo:
+//   propose: descuenta skpAmount del emisor (TRANSFER_SKP_OUT) — evita doble gasto.
+//   accept : abona skpAmount al receptor (TRANSFER_SKP_IN).
+//   reject/expire/cancel: refund al emisor (TRANSFER_SKP_REFUND).
+model SkpTransfer {
+  id          String    @id @default(cuid())
+  fromUserId  String
+  fromUser    User      @relation("SkpTransferFrom", fields: [fromUserId], references: [id], onDelete: Cascade)
+  toUserId    String
+  toUser      User      @relation("SkpTransferTo", fields: [toUserId], references: [id], onDelete: Cascade)
+  skpAmount   Int
+  reason      String?
+  state       String    @default("PENDING")
+  sourceKind  String // "HIRED" | "ENROLLMENT"
+  sourceRefId String
+  createdAt   DateTime  @default(now())
+  respondedAt DateTime?
+  expiresAt   DateTime // createdAt + 14 días
+
+  // Trazabilidad — referencias a las SkpTransaction generadas
+  debitTxId  String? // transacción de débito del emisor (al proponer)
+  creditTxId String? // transacción de crédito del receptor (al aceptar)
+  refundTxId String? // transacción de refund (al rechazar / expirar / cancelar)
+
+  @@index([toUserId, state])
+  @@index([fromUserId, state])
+  @@index([state, expiresAt])
+}
+
+// Petición de cobertura de evaluación: un alumno HIRED pide a su empresa que le
+// pague una evaluación de competencias (ACAT/EROP). La empresa aprueba de forma
+// asíncrona (paga con Skp de su cartera). Una vez APPROVED, el alumno hace el
+// test SIN pagar; al crear la evaluación la petición pasa a CONSUMED.
+//   state: PENDING | APPROVED | REJECTED | CANCELLED | EXPIRED | CONSUMED
+//   evaluationKind: "ACAT" | "EROP"
+model EvalRequest {
+  id             String    @id @default(cuid())
+  studentId      String
+  student        User      @relation("EvalRequestStudent", fields: [studentId], references: [id], onDelete: Cascade)
+  companyId      String
+  company        User      @relation("EvalRequestCompany", fields: [companyId], references: [id], onDelete: Cascade)
+  evaluationKind String // "ACAT" | "EROP"
+  state          String    @default("PENDING")
+  skpCost        Int // precio cacheado al pedir (inmune a cambios de tarifa)
+  reason         String?
+  requestedAt    DateTime  @default(now())
+  respondedAt    DateTime?
+  expiresAt      DateTime // requestedAt + 14 días
+  consumedAt     DateTime?
+
+  // Trazabilidad
+  companyDebitTxId     String? // SkpTransaction de débito de la empresa (al aprobar)
+  consumedEvaluationId String? // id de la Acat/EropEvaluation creada
+
+  @@index([studentId, state])
+  @@index([companyId, state])
+  @@index([state, expiresAt])
+}
+
+// Tarifa dual de productos pagables con Skp o €. Administrable, no hardcoded.
+// productKind: "EVAL_ECOE" | "EVAL_ACAT" | "EVAL_EROP".
+// Los cursos toman su precio en € de Course.price y en Skp de Course.priceSkp.
+model SkpPrice {
+  id          String   @id @default(cuid())
+  productKind String   @unique
+  skpAmount   Int
+  eurAmount   Float
+  active      Boolean  @default(true)
+  updatedAt   DateTime @updatedAt
+}
+
+// =============================================================
+// Monetización de empresas — planes + presupuesto de ofertas
+// Modelo "por presupuesto" (diario/semanal/mensual/anual) estilo LinkedIn/Indeed.
+// Pago MOCK en v1 (sin Stripe); la auditoría queda lista para el cobro real.
+// =============================================================
+
+// Catálogo de planes (editable por el súper-admin, igual que SkpPrice). Define
+// qué incluye cada plan y su precio base. Las cifras son DATOS, no código.
+model JobPublishingPlan {
+  id                  String   @id @default(cuid())
+  code                String   @unique // "free" | "starter" | "pro" | "enterprise"
+  name                String
+  billingCycle        String   @default("MONTHLY") // DAILY | WEEKLY | MONTHLY | ANNUAL
+  priceEurCents       Int      @default(0) // precio del plan (céntimos, sin IVA)
+  baseBudgetCents     Int      @default(0) // presupuesto de visibilidad incluido por ciclo
+  activeJobLimit      Int      @default(1) // ofertas abiertas simultáneas
+  includesFeatured    Boolean  @default(false) // permite destacar ofertas
+  includesCompanyPage Boolean  @default(true) // página de empresa enriquecida
+  includesAiTest      Boolean  @default(false) // test de competencias IA
+  sortOrder           Int      @default(0)
+  active              Boolean  @default(true)
+  updatedAt           DateTime @updatedAt
+
+  subscriptions CompanyJobSubscription[]
+}
+
+// Plan activo de una empresa + bolsa de presupuesto del ciclo en curso.
+model CompanyJobSubscription {
+  id               String            @id @default(cuid())
+  companyId        String            @unique
+  company          CompanyProfile    @relation(fields: [companyId], references: [userId], onDelete: Cascade)
+  planId           String
+  plan             JobPublishingPlan @relation(fields: [planId], references: [id])
+  state            String            @default("ACTIVE") // ACTIVE | PAUSED | EXPIRED | CANCELLED
+  billingCycle     String            @default("MONTHLY") // DAILY | WEEKLY | MONTHLY | ANNUAL
+  cycleStart       DateTime          @default(now())
+  cycleEnd         DateTime
+  budgetTotalCents Int               @default(0) // presupuesto del ciclo (base + top-ups)
+  budgetSpentCents Int               @default(0) // gastado (mock)
+  autoRenew        Boolean           @default(false)
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+}
+
+// Métricas diarias por oferta — base para "gastar" presupuesto por rendimiento.
+model JobMetrics {
+  id         String   @id @default(cuid())
+  jobId      String
+  job        Job      @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  day        DateTime // fecha (00:00) del conteo
+  views      Int      @default(0)
+  applies    Int      @default(0)
+  spentCents Int      @default(0)
+
+  @@unique([jobId, day])
+}
+
+// Auditoría inmutable de cobros (espejo de SkpTransaction). Sin FK a User/Company
+// para que la migración sea puramente aditiva. provider=MOCK ahora, STRIPE después.
+model BillingTransaction {
+  id          String   @id @default(cuid())
+  companyId   String // CompanyProfile.userId
+  kind        String // PLAN_PURCHASE | BUDGET_TOPUP | JOB_PUBLISH | JOB_FEATURE | REFUND
+  amountCents Int // + cargo / - reembolso
+  currency    String   @default("EUR")
+  provider    String   @default("MOCK") // MOCK | STRIPE
+  reference   String? // jobId / planId / referencia de pasarela
+  note        String?
+  createdAt   DateTime @default(now())
+
+  @@index([companyId, createdAt])
+}
+
+// =============================================================
+// Formación nativa por empresa — cursos con contenido (vídeo/PDF/slides)
+// NO usa Moodle: se construye dentro del propio Next.js (control total).
+// =============================================================
+
+// CompanyCourse es la RAÍZ del motor LMS único (Moodle + Skool-Classroom).
+// Propiedad generalizada: ownerType COMPANY|ENTITY + ownerUserId; impartible por
+// un formador (assignedTrainerId). Las tablas Course* (módulos, sesiones, tareas,
+// tests, formularios) cuelgan de aquí. companyId se mantiene (nullable) por
+// compatibilidad con los cursos de empresa ya desplegados.
+model CompanyCourse {
+  id          String          @id @default(cuid())
+  companyId   String? // legacy empresa; == ownerUserId cuando ownerType=COMPANY
+  company     CompanyProfile? @relation(fields: [companyId], references: [userId], onDelete: Cascade)
+  title       String
+  description String?
+  coverUrl    String?
+  status      String          @default("DRAFT") // DRAFT | PUBLISHED | ARCHIVED
+  priceSkp    Int? // precio en SkillsPoints; null/0 = gratis. Bonificable vía FUNDAE (futuro)
+  priceEur    Int? // precio en € (céntimos), informativo; cobro real con Stripe (futuro)
+
+  // Motor LMS (F0)
+  ownerType         String  @default("COMPANY") // COMPANY | ENTITY
+  ownerUserId       String  @default("") // User.id del dueño (== companyId al migrar)
+  assignedTrainerId String? // User.id del formador que imparte (sin FK)
+  category          String? // categoría para el panel Classroom
+  // Fuente única de los valores: app/(app)/_lms/modality.ts
+  format            String  @default("SELF_PACED") // SELF_PACED | PRACTICA | TELEFORMACION | BOOTCAMP
+
+  // Identidad del catálogo importado. `sourceKey` congela la clave de origen
+  // ("cesea:<slug del título>") para que reimportar ACTUALICE en vez de
+  // duplicar. El material que suba el cliente a mano lo tiene a null, y por eso
+  // ninguna reimportación se lo lleva por delante.
+  sourceKey    String?
+  // Código del catálogo antiguo de CESEA ("1101"), con el que cuadran fuera de
+  // la plataforma. Informativo: no cubre todo el catálogo y NO es la identidad.
+  externalCode String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  lessons      CompanyCourseLesson[]
+  enrollments  CompanyCourseEnrollment[]
+  modules      CourseModule[]
+  liveSessions CourseLiveSession[]
+  tasks        CourseTask[]
+  quizzes      CourseQuiz[]
+  forms        CourseForm[]
+
+  @@unique([ownerUserId, sourceKey])
+  @@index([companyId, status])
+  @@index([ownerType, ownerUserId])
+  @@index([assignedTrainerId])
+}
+
+// Una lección/recurso dentro de un curso. kind define cómo se renderiza.
+model CompanyCourseLesson {
+  id          String        @id @default(cuid())
+  courseId    String
+  course      CompanyCourse @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  moduleId    String? // F1: sección/módulo (null = sin módulo)
+  module      CourseModule? @relation(fields: [moduleId], references: [id], onDelete: SetNull)
+  title       String
+  kind        String        @default("VIDEO") // VIDEO | PDF | SLIDES | TEXT | LIVE
+  url         String? // vídeo (YouTube/Mux/Cloudflare), PDF o slides; o liveUrl (Zoom) si LIVE
+  body        String? // contenido markdown si kind=TEXT
+  durationMin Int?
+  order       Int           @default(0)
+  createdAt   DateTime      @default(now())
+
+  // Marca de contenido generado por el importador. A null = lo creó una persona
+  // desde el constructor, y una reimportación NO lo toca.
+  sourceKey String?
+
+  @@unique([courseId, sourceKey])
+  @@index([courseId, order])
+  @@index([moduleId, order])
+}
+
+// Inscripción de un alumno (User.id, sin FK para additividad pura) + progreso.
+model CompanyCourseEnrollment {
+  id              String        @id @default(cuid())
+  courseId        String
+  course          CompanyCourse @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  studentId       String // User.id
+  progress        Int           @default(0) // 0-100 (lecciones + tareas + tests)
+  viewedLessonIds String        @default("[]") // JSON: string[] de lecciones vistas
+  completedAt     DateTime?
+  enrolledAt      DateTime      @default(now())
+
+  @@unique([courseId, studentId])
+  @@index([studentId])
+}
+
+// =============================================================
+// Motor LMS — módulos, sesiones en directo, tareas, tests, formularios
+// Todo cuelga de CompanyCourse (companyCourseId). Sin FK a User (studentId/
+// gradedBy como texto). Migraciones aditivas 20260620180000..185000.
+// =============================================================
+
+// F1 · Módulo / sección (timeline) del curso.
+model CourseModule {
+  id              String        @id @default(cuid())
+  companyCourseId String
+  course          CompanyCourse @relation(fields: [companyCourseId], references: [id], onDelete: Cascade)
+  title           String
+  description     String?
+  order           Int           @default(0)
+  createdAt       DateTime      @default(now())
+
+  // Igual que en CompanyCourseLesson: a null = lo creó una persona y una
+  // reimportación no lo toca.
+  sourceKey String?
+
+  lessons      CompanyCourseLesson[]
+  liveSessions CourseLiveSession[]
+  tasks        CourseTask[]
+  quizzes      CourseQuiz[]
+  forms        CourseForm[]
+
+  @@unique([companyCourseId, sourceKey])
+  @@index([companyCourseId, order])
+}
+
+// F2 · Sesión en directo (videollamada programada con enlace externo).
+model CourseLiveSession {
+  id              String        @id @default(cuid())
+  companyCourseId String
+  course          CompanyCourse @relation(fields: [companyCourseId], references: [id], onDelete: Cascade)
+  moduleId        String?
+  module          CourseModule? @relation(fields: [moduleId], references: [id], onDelete: SetNull)
+  title           String
+  description     String?
+  scheduledAt     DateTime
+  durationMin     Int           @default(60)
+  joinUrl         String? // enlace externo Zoom / Google Meet
+  provider        String        @default("ZOOM") // ZOOM | MEET | OTHER
+  status          String        @default("SCHEDULED") // SCHEDULED | LIVE | ENDED | CANCELLED
+  createdAt       DateTime      @default(now())
+
+  attendance CourseSessionAttendance[]
+
+  @@index([companyCourseId, scheduledAt])
+  @@index([scheduledAt])
+}
+
+// F6 · Asistencia a una sesión en directo (marcada por el formador).
+model CourseSessionAttendance {
+  id        String            @id @default(cuid())
+  sessionId String
+  session   CourseLiveSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  studentId String // User.id, sin FK
+  present   Boolean           @default(true)
+  createdAt DateTime          @default(now())
+
+  @@unique([sessionId, studentId])
+  @@index([studentId])
+}
+
+// F3 · Tarea con entrega.
+model CourseTask {
+  id              String        @id @default(cuid())
+  companyCourseId String
+  course          CompanyCourse @relation(fields: [companyCourseId], references: [id], onDelete: Cascade)
+  moduleId        String?
+  module          CourseModule? @relation(fields: [moduleId], references: [id], onDelete: SetNull)
+  title           String
+  description     String?
+  dueAt           DateTime?
+  maxScore        Int?          @default(10)
+  allowFile       Boolean       @default(true)
+  allowText       Boolean       @default(true)
+  order           Int           @default(0)
+  createdAt       DateTime      @default(now())
+
+  submissions CourseTaskSubmission[]
+
+  @@index([companyCourseId])
+}
+
+model CourseTaskSubmission {
+  id          String     @id @default(cuid())
+  taskId      String
+  task        CourseTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  studentId   String // User.id, sin FK
+  fileUrl     String?
+  fileName    String?
+  text        String?
+  status      String     @default("SUBMITTED") // SUBMITTED | GRADED | RETURNED
+  score       Int?
+  feedback    String?
+  submittedAt DateTime   @default(now())
+  gradedAt    DateTime?
+  gradedBy    String? // User.id del formador/dueño
+
+  @@unique([taskId, studentId])
+  @@index([studentId])
+  @@index([taskId, status])
+}
+
+// F4 · Test autocorregible.
+model CourseQuiz {
+  id              String        @id @default(cuid())
+  companyCourseId String
+  course          CompanyCourse @relation(fields: [companyCourseId], references: [id], onDelete: Cascade)
+  moduleId        String?
+  module          CourseModule? @relation(fields: [moduleId], references: [id], onDelete: SetNull)
+  title           String
+  description     String?
+  passScore       Int           @default(60) // % para aprobar
+  order           Int           @default(0)
+  createdAt       DateTime      @default(now())
+
+  questions CourseQuizQuestion[]
+  attempts  CourseQuizAttempt[]
+
+  @@index([companyCourseId])
+}
+
+model CourseQuizQuestion {
+  id      String     @id @default(cuid())
+  quizId  String
+  quiz    CourseQuiz @relation(fields: [quizId], references: [id], onDelete: Cascade)
+  prompt  String
+  type    String     @default("single") // single | multiple | boolean
+  options String     @default("[]") // JSON: string[]
+  correct String     @default("[]") // JSON: índices correctos, p.ej. "[0,2]"
+  points  Int        @default(1)
+  order   Int        @default(0)
+
+  @@index([quizId, order])
+}
+
+model CourseQuizAttempt {
+  id          String     @id @default(cuid())
+  quizId      String
+  quiz        CourseQuiz @relation(fields: [quizId], references: [id], onDelete: Cascade)
+  studentId   String // User.id, sin FK
+  answers     String     @default("{}") // JSON: { questionId: number[] }
+  score       Int        @default(0) // % autocorregido
+  passed      Boolean    @default(false)
+  submittedAt DateTime   @default(now())
+
+  @@index([quizId, studentId])
+}
+
+// F4 · Formulario / encuesta (no autocorregible).
+model CourseForm {
+  id              String        @id @default(cuid())
+  companyCourseId String
+  course          CompanyCourse @relation(fields: [companyCourseId], references: [id], onDelete: Cascade)
+  moduleId        String?
+  module          CourseModule? @relation(fields: [moduleId], references: [id], onDelete: SetNull)
+  title           String
+  description     String?
+  kind            String        @default("SURVEY") // SURVEY | FEEDBACK | INTAKE
+  order           Int           @default(0)
+  createdAt       DateTime      @default(now())
+
+  fields    CourseFormField[]
+  responses CourseFormResponse[]
+
+  @@index([companyCourseId])
+}
+
+model CourseFormField {
+  id       String     @id @default(cuid())
+  formId   String
+  form     CourseForm @relation(fields: [formId], references: [id], onDelete: Cascade)
+  label    String
+  type     String     @default("text") // text | textarea | select | radio | checkbox | rating | boolean
+  options  String     @default("[]") // JSON: string[] para select/radio/checkbox
+  required Boolean    @default(false)
+  order    Int        @default(0)
+
+  @@index([formId, order])
+}
+
+model CourseFormResponse {
+  id          String     @id @default(cuid())
+  formId      String
+  form        CourseForm @relation(fields: [formId], references: [id], onDelete: Cascade)
+  studentId   String // User.id, sin FK
+  answers     String     @default("{}") // JSON: { fieldId: value }
+  submittedAt DateTime   @default(now())
+
+  @@index([formId])
+  @@index([studentId])
+}
+
+// Paquete de cursos (pack temático o programa Experto). Agrupación de varios
+// CompanyCourse para descubrimiento/marketing. Display-only (sin pago todavía).
+// courseIds = JSON string[] de CompanyCourse.id, sin FK (additividad pura).
+model CourseBundle {
+  id          String   @id @default(cuid())
+  ownerUserId String   @default("") // dueño (== CompanyCourse.ownerUserId)
+  ownerType   String   @default("COMPANY") // COMPANY | ENTITY
+  kind        String   @default("PACK") // PACK | PROGRAM
+  title       String
+  description String?
+  coverUrl    String?
+  badge       String? // "EL MÁS VENDIDO", "TOP VENTAS"…
+  category    String?
+  priceEur    Int? // céntimos
+  oldPriceEur Int? // céntimos (precio "antes" = suma de cursos)
+  courseIds   String   @default("[]") // JSON: string[] de CompanyCourse.id
+  order       Int      @default(0)
+  status      String   @default("PUBLISHED") // DRAFT | PUBLISHED | ARCHIVED
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Identidad de importación ("cesea:pack:<slug>" / "cesea:program:<slug>").
+  sourceKey String?
+
+  @@unique([ownerUserId, sourceKey])
+  @@index([ownerType, ownerUserId])
+  @@index([status])
+}
+
+// Oferta pública de tiempo en la comunidad. Quien publique se compromete a
+// "dar" X horas a quien reserve. Al reservar se crea un TpExchange PROPOSED
+// (giver = publisher, receiver = quien reservó, hours = hoursPerSession).
+model TpOffer {
+  id              String   @id @default(cuid())
+  giverId         String
+  giver           User     @relation("TpOfferGiver", fields: [giverId], references: [id], onDelete: Cascade)
+  title           String
+  description     String?
+  hoursPerSession Int      @default(1)
+  category        String? // texto libre: "idiomas", "soldadura", "PRL"…
+  active          Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([active, createdAt])
+  @@index([giverId])
+}
+
+// =============================================================
+// Admin global (súper-admin) — auditoría y avisos
+// =============================================================
+// Tablas propias del panel /admin. Sin relaciones Prisma a User (se guardan
+// actorId/createdById como texto) para que la migración sea puramente aditiva
+// y no toque el modelo User.
+
+// Registro inmutable de acciones de escritura del súper-admin (quién, qué,
+// sobre qué, cuándo). Lo escribe recordAudit() en cada server action de /admin.
+model AuditLog {
+  id         String   @id @default(cuid())
+  actorId    String
+  actorEmail String
+  action     String // p.ej. "user.role", "company.verify", "skp.price", "platform.update"
+  targetType String // "user" | "company" | "platform" | "course" | "job" | "price" | "announcement"
+  targetId   String?
+  summary    String // descripción legible del cambio
+  createdAt  DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([action])
+}
+
+// Aviso/anuncio global publicado por el admin. Se muestra como banner en el
+// layout autenticado a los usuarios cuyo rol coincida (audienceRole null = todos).
+model Announcement {
+  id           String   @id @default(cuid())
+  title        String
+  body         String
+  level        String   @default("info") // "info" | "warning"
+  audienceRole String? // null = todos los roles; si no, STUDENT|TRAINER|COMPANY|ENTITY|ADMIN
+  active       Boolean  @default(true)
+  createdById  String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([active])
+}
+
+// =============================================================
+// Promociones / CRM de residencias (rol ENTITY)
+// =============================================================
+// Pipeline para captar/incorporar residencias con las que la entidad ya tiene
+// contacto. Es el embrión del flujo que más adelante se conectará con el CRMD
+// externo (campo `source` deja traza del origen). Datos propios de Reconnect-iA
+// en `public` (Prisma), NO en el schema cesea.
+//   stage: NUEVA | CONTACTADA | EN_CONVERSACION | PROPUESTA | CLIENTE | DESCARTADA
+model Residencia {
+  id       String        @id @default(cuid())
+  entityId String
+  entity   EntityProfile @relation(fields: [entityId], references: [userId], onDelete: Cascade)
+
+  name         String
+  contactName  String?
+  contactEmail String?
+  contactPhone String?
+  city         String?
+  region       String?
+  beds         Int? // nº de plazas/camas (tamaño de la residencia)
+  stage        String  @default("NUEVA")
+  source       String? // origen del lead: "CRMD" | "Referido" | "Evento" | texto libre
+  notes        String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([entityId, stage])
+}
+
+// =============================================================
+// Match formador ↔ formación (nativo, schema public)
+// =============================================================
+// "Formación" = una impartición concreta que se publica para que un formador
+// la imparta (normalmente solicitada por una empresa). NO confundir con:
+//   · Course        → curso genérico de una entidad (temario/plantilla).
+//   · CompanyCourse → curso con contenido propio de una empresa.
+// El súper-admin (o el propio formador) publica una Formacion; en el dashboard
+// del formador aparece como una pila de cartas tipo Tinder que se arrastran a
+// derecha (like = solicitar interés) o izquierda (descartar). El súper-admin
+// confirma y asigna definitivamente al formador.
+//
+// Espejo del par Job/Application. Sin FK a User (createdByUserId/trainerId/
+// assignedTrainerId como texto) para additividad pura — mismo criterio que
+// BillingTransaction/AuditLog/CompanyCourseEnrollment. La única FK es
+// FormacionMatch → Formacion (ambas tablas nuevas → seguro).
+//   status:   DRAFT | PENDING_REVIEW | PUBLISHED | ASSIGNED | CLOSED
+//   modality: ONLINE | IN_PERSON | HYBRID (lib/roles MODALITIES)
+model Formacion {
+  id                  String    @id @default(cuid())
+  title               String
+  description         String
+  // Bloques separados de la propuesta formativa (tarjetas del formulario del
+  // formador). description sigue siendo el resumen general obligatorio; estos
+  // tres son opcionales para poder extraerlos por separado.
+  objectives          String?
+  contents            String?
+  targetAudience      String?
+  requiredSpecialties String    @default("[]") // JSON: string[] — se cruza con TrainerProfile.specialties
+  sector              String? // legacy (ronda 2): sector único de lib/sectors SECTORS
+  servicios           String    @default("[]") // JSON: string[] de lib/servicios SERVICIOS — base de la afinidad desde la ronda 6
+  modality            String    @default("ONLINE")
+  location            String?
+  city                String? // ciudad/provincia (Barcelona, Lérida…)
+  hours               Int       @default(0)
+  capacity            Int? // plazas
+  startDate           DateTime?
+  startTime           String? // hora inicio "HH:MM"
+  endDate             DateTime?
+  endTime             String? // hora fin "HH:MM"
+  clientName          String? // empresa/residencia destinataria (texto libre, no FK)
+  companyId           String? // User.id de la empresa dueña (sin FK); habilita las vistas de empresa
+  // Instalación donde se imparte, la describe la EMPRESA dueña: cómo es el aula
+  // y con qué medios cuenta (proyector, pantalla, equipos propios). Sirve para
+  // que el formador sepa qué se va a encontrar.
+  venueNotes          String?
+  venueEquipment      String? // JSON: string[] con claves de lib/formacion-venue EQUIPMENT
+  // Presupuesto que la ENTIDAD formativa envía a la empresa, que lo acepta o lo
+  // rechaza. budgetState: SENT | ACCEPTED | REJECTED (null = sin presupuesto).
+  budgetCents         Int?
+  budgetState         String?
+  budgetNote          String?
+  budgetSentAt        DateTime?
+  budgetSentByUserId  String? // User.id de la entidad que lo emitió; sin FK
+  budgetRespondedAt   DateTime?
+  // Propuestas de fechas de impartición formador↔empresa (solo IN_PERSON), JSON:
+  // { rounds: [{id, proposedByTrainerId, createdAt, startDate, endDate,
+  //   sessions: [{day, from, to}], note, status: PENDING|ACCEPTED|REJECTED,
+  //   companyResponseNote, respondedAt}] }. Ver lib/formaciones-fechas.ts.
+  proposedDates       String?
+  // HMAC-SHA256 del código de curso (lib/course-codes). El deck del formador es
+  // deny-by-default: sin código, o sin ese código habilitado en
+  // TrainerCourseCode, la formación no se le muestra a nadie.
+  courseCodeHash      String?
+  courseCodeHint      String? // últimos caracteres en claro, solo para que el admin lo identifique
+  status              String    @default("DRAFT")
+  createdByUserId     String // User.id del autor (admin o formador); sin FK
+  createdByRole       String // "ADMIN" | "TRAINER"
+  assignedTrainerId   String? // User.id del formador asignado al confirmar; sin FK
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  matches FormacionMatch[]
+
+  @@index([status, createdAt])
+  @@index([createdByUserId])
+  @@index([assignedTrainerId])
+  @@index([courseCodeHash])
+  @@index([companyId])
+  @@index([companyId, budgetState])
+}
+
+// Alumnos (trabajadores de la empresa) añadidos a una formación programada.
+// Sin FK (additividad pura). El contador A.OT de la programación sale de aquí.
+model FormacionAlumno {
+  id            String    @id @default(cuid())
+  formacionId   String
+  studentId     String // User.id del alumno; sin FK
+  addedByUserId String // quien lo añadió (empresa o entidad); sin FK
+  // Cómo entró: "MANUAL" (elegido de la plantilla) o "IMPORT" (fichero CSV/XLSX).
+  // Nullable: las filas anteriores a la ronda 6 no llevan marca.
+  source        String?
+  // Cuándo se le mandó la invitación de alta, para poder reenviarla sin repetir.
+  invitedAt     DateTime?
+  createdAt     DateTime  @default(now())
+
+  @@unique([formacionId, studentId])
+  @@index([formacionId])
+}
+
+// Documentación de una formación programada. kind: PLANTILLA (la sube el
+// admin, la empresa la descarga y firma) | FIRMADA (la sube la empresa).
+model FormacionDoc {
+  id               String   @id @default(cuid())
+  formacionId      String
+  kind             String // PLANTILLA | FIRMADA
+  // Requisito del catálogo FUNDAE que acredita este fichero (lib/formacion-docs
+  // FUNDAE_DOCS). Nullable: los ficheros subidos antes de existir el catálogo no
+  // acreditan ningún requisito concreto y siguen listándose como documentación
+  // suelta.
+  docKey           String?
+  label            String?
+  fileUrl          String
+  fileName         String
+  uploadedByUserId String // sin FK
+  uploadedByRole   String // ADMIN | COMPANY | ENTITY
+  createdAt        DateTime @default(now())
+
+  @@index([formacionId])
+  @@index([formacionId, docKey])
+}
+
+// Incidencia MANUAL de una impartición, escrita por la entidad que coordina.
+// Las automáticas (documentación incompleta, sin alumnos, sin formador, fecha de
+// fin pasada) se DERIVAN del estado en lib/formacion-incidencias.ts y NO se
+// guardan: si se guardaran habría que mantenerlas sincronizadas y podrían
+// quedarse abiertas después de corregir su causa.
+// Sin FK, mismo criterio que FormacionAlumno y FormacionDoc.
+model FormacionIncidencia {
+  id               String    @id @default(cuid())
+  formacionId      String
+  kind             String // lib/formacion-incidencias INCIDENCIA_KINDS
+  severity         String    @default("AVISO") // GRAVE | AVISO | INFO
+  title            String
+  detail           String?
+  state            String    @default("OPEN") // OPEN | RESOLVED
+  createdByUserId  String // sin FK
+  createdByRole    String // ENTITY | ADMIN
+  createdAt        DateTime  @default(now())
+  resolvedAt       DateTime?
+  resolvedByUserId String?
+  resolutionNote   String?
+
+  @@index([formacionId, state])
+  @@index([state, createdAt])
+}
+
+// Códigos de curso habilitados a un formador por el súper-admin. El código lo
+// dicta el negocio (llegarán de CESEA); aquí solo vive su HMAC. Sin FK a User
+// (additividad pura, mismo criterio que Formacion).
+model TrainerCourseCode {
+  id              String   @id @default(cuid())
+  trainerId       String // User.id del formador; sin FK
+  codeHash        String // HMAC-SHA256 del código normalizado (lib/course-codes)
+  codeHint        String? // últimos caracteres en claro, solo para que el admin lo identifique
+  createdByUserId String // admin que lo habilitó; sin FK
+  createdAt       DateTime @default(now())
+
+  @@unique([trainerId, codeHash]) // idempotencia al re-asignar el mismo código
+  @@index([trainerId])
+}
+
+// Swipe/interés de un formador sobre una formación (espejo de Application).
+//   decision: LIKE (derecha) | DISMISS (izquierda)
+//   status:   PENDING (like, espera al admin) | CONFIRMED (asignado) |
+//             DECLINED (otro fue asignado) | DISMISSED (descartado por el formador)
+model FormacionMatch {
+  id            String    @id @default(cuid())
+  formacionId   String
+  formacion     Formacion @relation(fields: [formacionId], references: [id], onDelete: Cascade)
+  trainerId     String // User.id del formador; sin FK
+  affinityScore Int // 0-100, snapshot al hacer swipe (inmune a cambios de specialties)
+  decision      String    @default("LIKE")
+  status        String    @default("PENDING")
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@unique([formacionId, trainerId]) // idempotencia: un swipe por formador/formación
+  @@index([trainerId, status])
+  @@index([formacionId, status])
+}
+
+// =============================================================
+// Búsqueda de talento — invitación empresa → alumno
+// =============================================================
+// La empresa busca alumnos formados (búsqueda proactiva) y les envía una
+// invitación de interés. El alumno la ve en su perfil y acepta/rechaza.
+// Sin FK a User (companyId/studentId texto), criterio del repo.
+//   status: PENDING | ACCEPTED | DECLINED
+model TalentInvite {
+  id          String    @id @default(cuid())
+  companyId   String // User.id de la empresa (CompanyProfile.userId)
+  studentId   String // User.id del alumno
+  jobId       String? // oferta asociada opcional (sin FK)
+  message     String?
+  status      String    @default("PENDING")
+  createdAt   DateTime  @default(now())
+  respondedAt DateTime?
+
+  @@unique([companyId, studentId, jobId])
+  @@index([studentId, status])
+  @@index([companyId, createdAt])
+}
+
+// =============================================================
+// Perfil laboral — solicitud de cambio de un campo bloqueado
+// =============================================================
+// El alumno no puede editar los campos laborales ya rellenos: envía una
+// solicitud y el súper-admin la aprueba (aplica el valor) o la rechaza.
+// Sin FK a User (studentId/respondedById texto), criterio del repo.
+// Los valores viajan serializados como texto (lib/labor.ts los convierte).
+//   state: PENDING | APPROVED | REJECTED | CANCELLED
+model ProfileChangeRequest {
+  id             String    @id @default(cuid())
+  studentId      String // User.id del alumno
+  field          String // clave de LABOR_FIELDS (lib/labor.ts)
+  currentValue   String? // valor bloqueado en el momento de solicitar
+  requestedValue String // valor propuesto, normalizado
+  reason         String?
+  state          String    @default("PENDING")
+  requestedAt    DateTime  @default(now())
+  respondedAt    DateTime?
+  respondedById  String? // User.id del admin que resolvió
+  responseNote   String? // nota del admin (visible para el alumno)
+
+  @@index([studentId, state])
+  @@index([state, requestedAt])
+}
+
+// =============================================================
+// Entidad formativa: su red de formadores y quién accede a su perfil
+// =============================================================
+// REGLA V0 dictada por el cliente: ningún formador entra en circulación sin que
+// una entidad valide su alta. El formador se registra igual, pero queda a la
+// espera; su solicitud aparece en el portal de las entidades, que la aceptan o
+// la rechazan. La entidad también puede añadir a la red a un formador que ya
+// esté registrado.
+// Sin FK a User (additividad pura), criterio del repo.
+//   state:  PENDING | APPROVED | REJECTED
+//   source: REQUEST (alta del propio formador) | INVITE (lo añadió la entidad)
+model TrainerEntityLink {
+  id        String @id @default(cuid())
+  entityId  String // EntityProfile.userId
+  trainerId String // User.id del formador
+  state     String @default("PENDING")
+  source    String @default("REQUEST")
+  note      String? // motivo del rechazo, visible para administración
+
+  createdAt     DateTime  @default(now())
+  respondedAt   DateTime?
+  respondedById String? // User.id de quien resolvió, dentro de la entidad
+
+  @@unique([entityId, trainerId]) // una relación por par entidad/formador
+  @@index([entityId, state])
+  @@index([trainerId, state])
+}
+
+// Personas con acceso al perfil de una entidad formativa. En V0 es un registro
+// de quién puede operar en nombre de la entidad (nombre, DNI y correo); no crea
+// cuentas por sí solo, se corresponde con el alta que hace administración.
+model EntityMember {
+  id            String   @id @default(cuid())
+  entityId      String // EntityProfile.userId
+  name          String
+  dni           String // validado con isValidDniNie (lib/labor.ts)
+  email         String
+  role          String? // texto libre: "Coordinación", "Administración"…
+  createdAt     DateTime @default(now())
+  createdByUserId String // quién lo dio de alta; sin FK
+
+  @@unique([entityId, email])
+  @@index([entityId])
+}
+
+// =============================================================
+// Catálogo de centros de trabajo
+// =============================================================
+// Estancia, residencia, planta o sede donde trabaja un alumno. El alumno elige
+// del catálogo ya validado y, si el suyo no está, lo propone: queda PENDING
+// hasta que administración lo valida. La clave del asunto es normalizedName con
+// índice único (lib/work-centers.ts lo genera): impide dar de alta dos veces el
+// mismo centro escrito de forma distinta, que es justo lo que se quiere evitar.
+// Sin FK a User (additividad pura), criterio del repo.
+//   status: PENDING | APPROVED | REJECTED
+model WorkCenter {
+  id             String  @id @default(cuid())
+  name           String
+  normalizedName String  @unique // nombre sin tildes ni signos, para no duplicar
+  city           String?
+  province       String? // provincia canónica de lib/geo PROVINCES
+  status         String  @default("PENDING")
+  // Si al validarlo resulta ser un centro ya existente escrito de otra forma,
+  // se rechaza apuntando al canónico en vez de crear un duplicado.
+  mergedIntoId   String?
+
+  createdByUserId String // User.id de quien lo propuso; sin FK
+  createdAt       DateTime  @default(now())
+  reviewedById    String? // User.id del admin que lo resolvió
+  reviewedAt      DateTime?
+
+  @@index([status, name])
+}
