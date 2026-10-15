@@ -14,7 +14,7 @@ The React components, the Prisma schema and the modules that talk to the databas
 
 ## Data model
 
-[`prisma/schema.prisma`](prisma/schema.prisma) is the full schema: 59 models covering users and the four profile types, courses and enrolments, jobs and applications, the course deliveries with their trainer matching, the SkillPoints and TimePoints economy, assessments, the multi-tenant bridge and the audit log. Most models carry a comment explaining why they look the way they do, for example why a trainer's bank details live in their own table or why some references have no foreign key.
+[`prisma/schema.prisma`](prisma/schema.prisma) is the schema as of September 2026: 59 models covering users and the four profile types, courses and enrolments, jobs and applications, the course deliveries with their trainer matching, the SkillPoints and TimePoints economy, assessments, the multi-tenant bridge and the audit log. Most models carry a comment explaining why they look the way they do, for example why a trainer's bank details live in their own table or why some references have no foreign key.
 
 ## Security and access
 

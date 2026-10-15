@@ -1,7 +1,7 @@
 {
   "$comment": "Single source of truth for the progress card and the README progress/roadmap sections. Edit, then run: node tools/progress.mjs",
   "product": "Reconnect.iA",
-  "updated": "2026-09-28",
+  "updated": "2026-10-15",
   "release": {
     "label": "V0",
     "status": "In production",
@@ -10,38 +10,98 @@
   },
   "metrics": [
     {
-      "id": "v0-scope",
-      "label": "V0 features built",
-      "done": 268,
-      "total": 324,
-      "unit": "features",
-      "note": "Every requested feature mapped per role and area (feature map of 2026-09-17)."
-    },
-    {
       "id": "programme",
       "label": "Hardening & completion programme",
-      "done": 1,
-      "total": 17,
+      "done": 13,
+      "total": 13,
       "unit": "work packages",
       "segmented": true,
-      "note": "Work packages from access & session security to the V1 feature set."
+      "note": "Access and session security through to the V0 feature set. Closed at 13 packages on 10 Oct 2026; the rest of the scope moved to client change batches and V1."
+    },
+    {
+      "id": "batches",
+      "label": "Client change batches delivered",
+      "done": 5,
+      "total": 5,
+      "unit": "batches",
+      "segmented": true,
+      "note": "Change requests from the operator since go-live, each one built, reviewed, regression-tested and deployed."
     }
   ],
   "stats": [
-    { "value": "6", "label": "user roles" },
-    { "value": "135", "label": "pages" },
-    { "value": "68", "label": "server-action modules" },
-    { "value": "59", "label": "data models" },
-    { "value": "38", "label": "migrations" },
-    { "value": "73k", "label": "lines of TypeScript" }
+    {
+      "value": "6",
+      "label": "user roles"
+    },
+    {
+      "value": "169",
+      "label": "pages"
+    },
+    {
+      "value": "110",
+      "label": "server-action modules"
+    },
+    {
+      "value": "91",
+      "label": "data models"
+    },
+    {
+      "value": "86",
+      "label": "migrations"
+    },
+    {
+      "value": "181k",
+      "label": "lines of TypeScript"
+    }
   ],
   "milestones": [
-    { "date": "2026-05", "title": "Foundation", "status": "done", "detail": "Next.js 16 + Prisma + Auth.js scaffold, first three roles, job offers, courses and affinity matching, ACAT and ECOE in the student profile, trainer role." },
-    { "date": "2026-06", "title": "Public launch", "status": "done", "detail": "Live on 7 June. Unified contextual navigation, legal pages, residence CRM for training entities, trainer ↔ course matching, branded transactional email." },
-    { "date": "2026-07", "title": "Security audit I", "status": "done", "detail": "Audit remediation (evaluation paywall, atomic writes, SSO, email verification), training modalities, catalogue filters, supervised labour profile." },
-    { "date": "2026-08", "title": "Security audit II · real data", "status": "done", "detail": "Second audit fixed and deployed, password recovery, training-entity portal, bulk student import, move from demo data to the real catalogue." },
-    { "date": "2026-09", "title": "124-course catalogue · WP1", "status": "done", "detail": "Full CeSeA Formación catalogue imported with drift checks. Work package 1: versioned sessions, purpose-bound tokens, trusted client IP, entity validation, tests and acceptance harness." },
-    { "date": "next", "title": "WP2 to WP17", "status": "active", "detail": "Next work packages towards V1: onboarding and validation flows for every role, course scheduling and delivery, reporting." },
-    { "date": "later", "title": "V1", "status": "planned", "detail": "Semantic matching, in-app messaging, online payments and offer packs, automated ECOE validation, full back office, mobile app." }
+    {
+      "date": "2026-05",
+      "title": "Foundation",
+      "status": "done",
+      "detail": "Next.js 16 + Prisma + Auth.js scaffold, first three roles, job offers, courses and affinity matching, ACAT and ECOE in the student profile, trainer role."
+    },
+    {
+      "date": "2026-06",
+      "title": "Public launch",
+      "status": "done",
+      "detail": "Live on 7 June. Unified contextual navigation, legal pages, residence CRM for training entities, trainer ↔ course matching, branded transactional email."
+    },
+    {
+      "date": "2026-07",
+      "title": "Security audit I",
+      "status": "done",
+      "detail": "Audit remediation (evaluation paywall, atomic writes, SSO, email verification), training modalities, catalogue filters, supervised labour profile."
+    },
+    {
+      "date": "2026-08",
+      "title": "Security audit II · real data",
+      "status": "done",
+      "detail": "Second audit fixed and deployed, password recovery, training-entity portal, bulk student import, move from demo data to the real catalogue."
+    },
+    {
+      "date": "2026-09",
+      "title": "124-course catalogue · WP1",
+      "status": "done",
+      "detail": "Full CeSeA Formación catalogue imported with drift checks. Work package 1: versioned sessions, purpose-bound tokens, trusted client IP, entity validation, tests and acceptance harness."
+    },
+    {
+      "date": "2026-10",
+      "title": "WP2 to WP13 · security pass",
+      "status": "done",
+      "detail": "Onboarding and validation for every role, entity course catalogues and scheduling, the trainer network, company job and training plans, an admin audit log and V0/V1 feature gating. Third security pass: encrypted national IDs and bank details, hashed one-time tokens, CSP with nonces, account suspension and erasure."
+    },
+    {
+      "date": "2026-10",
+      "title": "Client change batches 1 to 5",
+      "status": "done",
+      "detail": "Two-account sign-up for companies and entities, team rosters with per-section view or edit roles, service-based course codes with one course per delivery mode, audience criteria shared with the public course websites, a trainer directory paid in SkillPoints and an entity-to-trainer chat."
+    },
+    {
+      "date": "later",
+      "title": "V1",
+      "status": "planned",
+      "detail": "Meeting booking after a rejected validation, semantic matching, online payments and offer packs, automated ECOE validation, full back office, mobile app."
+    }
   ]
 }

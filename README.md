@@ -9,7 +9,7 @@
   <a href="#architecture">Architecture</a> ·
   <a href="#security">Security</a> ·
   <a href="platform/">Code</a> ·
-  <a href="https://github.com/vaultbit-web/RECONNECTIA-WEBSITE">Website source</a>
+  <a href="https://github.com/danielbrosed/RECONNECTIA-WEBSITE">Website source</a>
 </p>
 
 <p align="center">
@@ -27,7 +27,7 @@
 
 Reconnect.iA is a professional network for the training and social-care sector in Spain. The idea behind it is simple: if you can prove your training, it should help you get hired. Students, companies, accredited training entities and trainers all work on the same platform.
 
-A student's profile works as a CV that fills itself in with the courses they finish, the skills they validate and the assessments they decide to share. Companies look for people who have actually been trained, publish job offers ranked by affinity and manage their FUNDAE (subsidised) training plans. Training entities schedule course deliveries and assign validated trainers to them. Trainers pick the deliveries that suit them and run their classes from their own panel.
+A student's profile works as a CV that fills itself in with the courses they finish, the skills they validate and the assessments they decide to share. Companies look for people who have actually been trained, publish job offers ranked by affinity and manage their FUNDAE (subsidised) training plans. Training entities schedule course deliveries and assign validated trainers to them. Trainers pick the deliveries that suit them and run their classes from their own panel. Companies and entities work as teams: the person who signs the organisation up also gets a student account, and everyone else joins through a staff roster with a role that decides, section by section, what they can see or change.
 
 I designed and built the platform from scratch as its lead full-stack developer. That covers the architecture and the data model, the six role experiences, an internal points economy, the bridge to the operator's own learning platform, the security hardening, the marketing site and the internal tooling. It has been live since 7 June 2026. CeSeA Sistemas runs it, and CeSeA Formación is the first training provider on it.
 
@@ -35,16 +35,16 @@ I designed and built the platform from scratch as its lead full-stack developer.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/progress/progress-dark.svg">
-  <img alt="Build progress: 268 of 324 V0 features built (83%); hardening and completion programme, 1 of 17 work packages (6%); milestones from May 2026 to V1" src="docs/progress/progress-light.svg" width="100%">
+  <img alt="Build progress: hardening and completion programme, 13 of 13 work packages; client change batches, 5 of 5 delivered; milestones from May 2026 to V1" src="docs/progress/progress-light.svg" width="100%">
 </picture>
 
 <!-- progress:start -->
-_Last updated 28 Sep 2026 · V0 in production since 7 Jun 2026._
+_Last updated 15 Oct 2026 · V0 in production since 7 Jun 2026._
 
 | Track | Progress | |
 |---|---|---|
-| V0 features built | 268 / 324 features | **83%** |
-| Hardening & completion programme | 1 / 17 work packages | **6%** |
+| Hardening & completion programme | 13 / 13 work packages | **100%** |
+| Client change batches delivered | 5 / 5 batches | **100%** |
 <!-- progress:end -->
 
 The card and both tables come from [`roadmap.json`](roadmap.json). When a milestone lands I edit that file and run [`tools/progress.mjs`](tools/progress.mjs), which redraws the card and rewrites these sections.
@@ -53,16 +53,16 @@ The card and both tables come from [`roadmap.json`](roadmap.json). When a milest
 
 | Role | What they do here |
 |---|---|
-| Student | Keeps a CV built from completed courses and validated skills, plus an external CV, certificates and ECOE exam results. Can take the ACAT behavioural test and the EROP projective test, both behind informed consent and private unless shared. Sees job offers ranked by affinity, course recommendations and two wallets (SkillPoints and TimePoints). |
-| Company | Has a company page, publishes jobs on a plan and sees candidates ranked by affinity. Searches talent with a limited number of free unlocks, follows the people it hired and whatever results they chose to share, builds a training plan with trusted entities and keeps its FUNDAE credit and paperwork. |
-| Training entity | Runs a training portal: course calls, catalogue, delivery scheduling, trainer validation, enrolments, client companies, a small CRM of care homes and its own staff accounts. A new entity waits in a holding screen until an administrator validates it. |
-| Trainer | Has a professional profile and a calendar, swipes through course deliveries to say which ones they want, and uses a delivery panel for attendance, logbook, hours, incidents, tasks and ratings. |
-| Administrator | Has a control panel with platform KPIs, moderates users, entities and companies, manages the catalogue and deliveries, runs the SkillPoints economy (prices, wallets, disputes) and reads the audit log. |
+| Student | Keeps a CV built from completed courses and validated skills, plus an external CV, certificates and ECOE exam results. Can take the ACAT behavioural test and the EROP projective test, both behind informed consent and private unless shared. Sees job offers ranked by affinity, course recommendations and two wallets (SkillPoints and TimePoints). Picks a professional profile at sign-up (nursing assistant, physiotherapy, kitchen staff and so on), and courses aimed at that profile rank higher. |
+| Company | Has a company page, publishes jobs on a plan and sees candidates ranked by affinity. Searches talent with a limited number of free unlocks, follows the people it hired and whatever results they chose to share, builds a training plan with trusted entities and keeps its FUNDAE credit and paperwork. Runs its own staff roster, where each role gets hidden, view or edit access per section. |
+| Training entity | Runs a training portal: course calls, a catalogue with one course per delivery mode and codes grouped by service, a downloadable import template, delivery scheduling, trainer validation with an internal chat, a trainer directory it can unlock with SkillPoints, enrolments, client companies, a small CRM of care homes and a staff roster with roles. A new entity waits in a holding screen until an administrator checks its company documents and validates it. |
+| Trainer | Has a professional profile and a calendar, swipes through course deliveries to say which ones they want, and uses a delivery panel for attendance, logbook, hours, incidents, tasks and ratings. Proposes courses to the entities in their network and can hide from the trainer directory at any time. |
+| Administrator | Has a control panel with platform KPIs, moderates users, entities and companies, manages the catalogue and deliveries, runs the SkillPoints economy for companies and entities (prices, wallets, top-ups, disputes) and reads the audit log. |
 | Everyone | Registration by role, email verification, password recovery, the public home and the legal pages. |
 
 ## Screenshots
 
-These come from a local copy of the platform filled with made-up data, so no real person appears in them.
+These come from a local copy of the platform filled with made-up data, so no real person appears in them. They were taken in September 2026.
 
 <table>
   <tr>
@@ -93,7 +93,7 @@ These come from a local copy of the platform filled with made-up data, so no rea
 
 ## The landing page
 
-[reconnectia.es](https://reconnectia.es) explains the network as you scroll, one scene at a time, and also hosts the product manual. It is plain JavaScript with GSAP ScrollTrigger and Lenis copied into the site, so it loads no script from a CDN. It started as a countdown to launch day and became the way into the platform. Its source is public in [vaultbit-web/RECONNECTIA-WEBSITE](https://github.com/vaultbit-web/RECONNECTIA-WEBSITE).
+[reconnectia.es](https://reconnectia.es) explains the network as you scroll, one scene at a time, and also hosts the product manual. It is plain JavaScript with GSAP ScrollTrigger and Lenis copied into the site, so it loads no script from a CDN. It started as a countdown to launch day and became the way into the platform. Its source is public in [danielbrosed/RECONNECTIA-WEBSITE](https://github.com/danielbrosed/RECONNECTIA-WEBSITE).
 
 <table>
   <tr>
@@ -114,24 +114,24 @@ These come from a local copy of the platform filled with made-up data, so no rea
 |---|---|
 | Framework | Next.js 16 (App Router, Turbopack), React 19.2 |
 | Language | TypeScript in strict mode |
-| Data | PostgreSQL with Prisma 6: 59 models, 38 migrations |
+| Data | PostgreSQL with Prisma 6: 91 models, 86 migrations |
 | Auth | Auth.js v5 with credentials and bcrypt, JWT sessions that carry a per-user version |
 | Forms and validation | Zod 4 on the server, React Hook Form in the browser |
 | Styling | Tailwind CSS 4 with design tokens, Inter and JetBrains Mono through `next/font` |
 | Files and email | Private object storage behind route handlers, Nodemailer with branded templates |
 | Integrations | Single sign-on into the operator's learning platform with a short-lived signed JWT, spreadsheet import of students and trainers |
 | Testing | `node:test` with `tsx`, plus an acceptance harness that drives headless Chrome |
-| Delivery | Docker image behind a reverse proxy, redeployed on every push to `main` |
+| Delivery | Docker image (Node 22, non-root) built from a given commit and rolled out behind a reverse proxy, with the previous image kept for an instant rollback |
 
 ## Architecture
 
 ```mermaid
 flowchart LR
     U["Browser<br/>6 role experiences"] --> P["proxy<br/>role gating, soft launch"]
-    P --> RSC["Server Components<br/>135 pages"]
-    P --> SA["Server Actions<br/>68 modules, Zod on input"]
+    P --> RSC["Server Components<br/>169 pages"]
+    P --> SA["Server Actions<br/>110 modules, Zod on input"]
     P --> RH["Route handlers<br/>auth, private files, SSO"]
-    RSC --> DB[("PostgreSQL<br/>Prisma 6, 59 models")]
+    RSC --> DB[("PostgreSQL<br/>Prisma 6, 91 models")]
     SA --> DB
     RH --> ST[("Private object storage")]
     SA --> MAIL["SMTP<br/>transactional email"]
@@ -154,7 +154,11 @@ Matching has to be explainable. A candidate's affinity for a job is the share of
 
 Personal data is private by default. Assessment results stay hidden until the student shares them, students can leave the talent search, and a trainer's tax and bank details live in a separate table that only the owning entity and administrators can query.
 
-Routes open per role from a single allowlist, so a module can be finished in production and switched on when it is ready. The operator's catalogue (124 courses) is imported from its public site by a script that refuses to run if the course count changed unexpectedly.
+Routes open per role from a single allowlist, so a module can be finished in production and switched on when it is ready. The same idea works inside an organisation: each role gets hidden, view or edit access per section, the server checks it on every page and every action, and a test walks all the guards so a new action cannot ship without one.
+
+The operator's catalogue (127 courses) is imported from its public site by a script that refuses to run if the course count changed unexpectedly. Each course became one course per delivery mode with a code built from its service and a number (`06012`, `06012-1`), and the "who it is for" criteria are shared word for word between the platform and the two public course websites.
+
+Data changes that rewrite existing rows, like splitting every course by delivery mode, run as scripts that are dry by default, write a rollback file before touching anything and are rehearsed on a fresh copy of production (apply, second pass with no changes, rollback, apply again) before the real run.
 
 ### Core data model
 
@@ -186,7 +190,7 @@ erDiagram
 
 The platform holds employment records and assessment results of real people, so I treat security as part of the product work.
 
-Two security audits ran in July and August 2026. Every finding was fixed and deployed, from the assessment paywall and atomic wallet writes to the SSO bridge and email verification.
+Two security audits ran in July and August 2026. Every finding was fixed and deployed, from the assessment paywall and atomic wallet writes to the SSO bridge and email verification. A third pass in October added field-level encryption for national ID numbers, social security numbers and bank accounts (with blind indexes so they can still be looked up), stored one-time tokens only as hashes, moved the Content Security Policy to per-request nonces and gave administrators a way to suspend or erase an account.
 
 Sessions can be revoked. The JWT carries a version number that is checked against the database on every request, with a 10-second cache per process. Changing, resetting or rotating a password bumps the version, so all other sessions end straight away while the user's own session is issued again.
 
@@ -194,7 +198,7 @@ One-time links only work for their own purpose. Verification, invitation and pas
 
 Rate limits use a client IP that cannot be spoofed: the address N hops from the right of `X-Forwarded-For`, where N is the number of proxies we control, never the left-most value that the client writes. If the setting is missing, the app says so when it boots.
 
-Anyone can register a training entity, but its portal does nothing until an administrator validates it, and that decision is logged and emailed.
+Anyone can register a company or a training entity, but it does nothing until an administrator validates it against its tax ID card, articles of association and the identity and position of the person asking, and that decision is logged and emailed. Sign-up answers the same way whether or not an email already has an account, so the form cannot be used to find out who is registered.
 
 CVs, certificates and exam results are never in a public bucket. A route handler serves them to their owner, or to a company that hired the student and only if the student turned sharing on.
 
@@ -202,11 +206,11 @@ Every script that touches a database resolves it through the same guard. Product
 
 ## Quality
 
-The security-critical modules have unit tests with `node:test` and `tsx`. The samples published here run on their own: 5 suites, 35 tests. An acceptance harness drives headless Chrome over the DevTools protocol against a production build and covers 12 scenarios, including registration, email verification, login, session invalidation and entity validation. QA and demos use a local database with made-up data, kept away from production by the same guard, and the whole app passes a strict TypeScript check.
+The platform has 209 test files with `node:test` and `tsx`, many of them against a real local database. The samples published here run on their own: 5 suites, 35 tests. On top of that, 63 acceptance harnesses drive headless Chrome over the DevTools protocol against a production build, and before every release the full set runs against two servers at once: registration, email verification, sessions, roles and permissions, course catalogues, enrolment, chat, the SkillPoints economy and cross-account isolation. QA and demos use local databases with made-up data, kept away from production by the same guard, and the whole app passes a strict TypeScript check and lint with zero errors.
 
 ## Code
 
-The [`platform/`](platform/) folder has the full data model (59 models), interface components such as the trainer's swipe deck and the calendar, the design tokens, the email templates and the security modules with their tests, which run on their own. [`platform/README.md`](platform/README.md) goes through each file.
+The [`platform/`](platform/) folder has a snapshot of the data model from September 2026 (59 of today’s 91 models), interface components such as the trainer's swipe deck and the calendar, the design tokens, the email templates and the security modules with their tests, which run on their own. [`platform/README.md`](platform/README.md) goes through each file.
 
 The rest of the source stays private. It is a live system with personal and employment data, and publishing all of it would hand out its attack surface.
 
@@ -220,8 +224,9 @@ The rest of the source stays private. It is a live system with personal and empl
 | Jul 2026 | Security audit I | Done | Audit remediation (evaluation paywall, atomic writes, SSO, email verification), training modalities, catalogue filters, supervised labour profile. |
 | Aug 2026 | Security audit II · real data | Done | Second audit fixed and deployed, password recovery, training-entity portal, bulk student import, move from demo data to the real catalogue. |
 | Sep 2026 | 124-course catalogue · WP1 | Done | Full CeSeA Formación catalogue imported with drift checks. Work package 1: versioned sessions, purpose-bound tokens, trusted client IP, entity validation, tests and acceptance harness. |
-| Next | WP2 to WP17 | In progress | Next work packages towards V1: onboarding and validation flows for every role, course scheduling and delivery, reporting. |
-| Later | V1 | Planned | Semantic matching, in-app messaging, online payments and offer packs, automated ECOE validation, full back office, mobile app. |
+| Oct 2026 | WP2 to WP13 · security pass | Done | Onboarding and validation for every role, entity course catalogues and scheduling, the trainer network, company job and training plans, an admin audit log and V0/V1 feature gating. Third security pass: encrypted national IDs and bank details, hashed one-time tokens, CSP with nonces, account suspension and erasure. |
+| Oct 2026 | Client change batches 1 to 5 | Done | Two-account sign-up for companies and entities, team rosters with per-section view or edit roles, service-based course codes with one course per delivery mode, audience criteria shared with the public course websites, a trainer directory paid in SkillPoints and an entity-to-trainer chat. |
+| Later | V1 | Planned | Meeting booking after a rejected validation, semantic matching, online payments and offer packs, automated ECOE validation, full back office, mobile app. |
 <!-- roadmap:end -->
 
 ## Repository layout
