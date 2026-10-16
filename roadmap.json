@@ -1,7 +1,7 @@
 {
   "$comment": "Single source of truth for the progress card and the README progress/roadmap sections. Edit, then run: node tools/progress.mjs",
   "product": "Reconnect.iA",
-  "updated": "2026-10-15",
+  "updated": "2026-10-16",
   "release": {
     "label": "V0",
     "status": "In production",
@@ -21,8 +21,8 @@
     {
       "id": "batches",
       "label": "Client change batches delivered",
-      "done": 5,
-      "total": 5,
+      "done": 6,
+      "total": 6,
       "unit": "batches",
       "segmented": true,
       "note": "Change requests from the operator since go-live, each one built, reviewed, regression-tested and deployed."
@@ -34,23 +34,23 @@
       "label": "user roles"
     },
     {
-      "value": "169",
+      "value": "183",
       "label": "pages"
     },
     {
-      "value": "110",
+      "value": "115",
       "label": "server-action modules"
     },
     {
-      "value": "91",
+      "value": "94",
       "label": "data models"
     },
     {
-      "value": "86",
+      "value": "89",
       "label": "migrations"
     },
     {
-      "value": "181k",
+      "value": "192k",
       "label": "lines of TypeScript"
     }
   ],
@@ -93,9 +93,9 @@
     },
     {
       "date": "2026-10",
-      "title": "Client change batches 1 to 5",
+      "title": "Client change batches 1 to 6",
       "status": "done",
-      "detail": "Two-account sign-up for companies and entities, team rosters with per-section view or edit roles, service-based course codes with one course per delivery mode, audience criteria shared with the public course websites, a trainer directory paid in SkillPoints and an entity-to-trainer chat."
+      "detail": "Two-account sign-up for companies and entities, team rosters with per-section view or edit roles, service-based course codes with one course per delivery mode and hours, audience criteria shared with the public course websites, a trainer directory paid in SkillPoints and an entity-to-trainer chat. Four in-platform assessments (behavioural, projective, cognitive and vocational) unlocked with SkillPoints by the student or their employer, with verified results on the profile that employers can review."
     },
     {
       "date": "later",

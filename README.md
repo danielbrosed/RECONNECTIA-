@@ -39,12 +39,12 @@ I designed and built the platform from scratch as its lead full-stack developer.
 </picture>
 
 <!-- progress:start -->
-_Last updated 15 Oct 2026 · V0 in production since 7 Jun 2026._
+_Last updated 16 Oct 2026 · V0 in production since 7 Jun 2026._
 
 | Track | Progress | |
 |---|---|---|
 | Hardening & completion programme | 13 / 13 work packages | **100%** |
-| Client change batches delivered | 5 / 5 batches | **100%** |
+| Client change batches delivered | 6 / 6 batches | **100%** |
 <!-- progress:end -->
 
 The card and both tables come from [`roadmap.json`](roadmap.json). When a milestone lands I edit that file and run [`tools/progress.mjs`](tools/progress.mjs), which redraws the card and rewrites these sections.
@@ -225,7 +225,7 @@ The rest of the source stays private. It is a live system with personal and empl
 | Aug 2026 | Security audit II · real data | Done | Second audit fixed and deployed, password recovery, training-entity portal, bulk student import, move from demo data to the real catalogue. |
 | Sep 2026 | 124-course catalogue · WP1 | Done | Full CeSeA Formación catalogue imported with drift checks. Work package 1: versioned sessions, purpose-bound tokens, trusted client IP, entity validation, tests and acceptance harness. |
 | Oct 2026 | WP2 to WP13 · security pass | Done | Onboarding and validation for every role, entity course catalogues and scheduling, the trainer network, company job and training plans, an admin audit log and V0/V1 feature gating. Third security pass: encrypted national IDs and bank details, hashed one-time tokens, CSP with nonces, account suspension and erasure. |
-| Oct 2026 | Client change batches 1 to 5 | Done | Two-account sign-up for companies and entities, team rosters with per-section view or edit roles, service-based course codes with one course per delivery mode, audience criteria shared with the public course websites, a trainer directory paid in SkillPoints and an entity-to-trainer chat. |
+| Oct 2026 | Client change batches 1 to 6 | Done | Two-account sign-up for companies and entities, team rosters with per-section view or edit roles, service-based course codes with one course per delivery mode and hours, audience criteria shared with the public course websites, a trainer directory paid in SkillPoints and an entity-to-trainer chat. Four in-platform assessments (behavioural, projective, cognitive and vocational) unlocked with SkillPoints by the student or their employer, with verified results on the profile that employers can review. |
 | Later | V1 | Planned | Meeting booking after a rejected validation, semantic matching, online payments and offer packs, automated ECOE validation, full back office, mobile app. |
 <!-- roadmap:end -->
 
