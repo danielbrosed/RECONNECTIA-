@@ -6,10 +6,35 @@
 // cuerpoHtml es HTML ya montado por el emisor (párrafos <p> con los estilos de
 // abajo si quiere coherencia); el layout pone cabecera, card, CTA y pie.
 
+import { urlPublica } from "@/lib/email-config";
+
 const P_STYLE = 'style="margin:0 0 16px;font-size:15px;line-height:1.6;color:#292724;"';
 
 export function emailParagraph(html: string): string {
   return `<p ${P_STYLE}>${html}</p>`;
+}
+
+/** Escapa texto que no es de confianza (nombres, razones sociales, títulos) antes de meterlo en el HTML. */
+export function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+/** Lista de puntos con la misma tipografía que los párrafos. Recibe HTML ya escapado. */
+export function emailList(itemsHtml: string[]): string {
+  const filas = itemsHtml
+    .map((i) => `<tr><td style="padding:4px 0;font-size:15px;line-height:1.5;color:#292724;">›&nbsp;&nbsp;${i}</td></tr>`)
+    .join("");
+  return `<table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 0 20px;">${filas}</table>`;
+}
+
+/** Enlace en claro bajo el botón, para quien no pueda pulsarlo. */
+export function emailEnlaceEnClaro(href: string): string {
+  return `<p style="margin:22px 0 0;font-size:12px;line-height:1.6;color:#8B867E;">Si el botón no funciona, copia y pega este enlace en tu navegador:<br><a href="${href}" style="color:#161514;word-break:break-all;">${href}</a></p>`;
 }
 
 export function emailLayout({
@@ -18,14 +43,17 @@ export function emailLayout({
   cuerpoHtml,
   cta,
   ctaSecundaria,
+  pieHtml = "",
 }: {
   eyebrow: string;
   titulo: string;
   cuerpoHtml: string;
   cta?: { label: string; href: string };
   ctaSecundaria?: { label: string; href: string };
+  /** HTML que va debajo del botón: el enlace en claro o una nota final. */
+  pieHtml?: string;
 }): string {
-  const base = (process.env.AUTH_URL ?? process.env.NEXTAUTH_URL ?? "http://localhost:3000").replace(/\/+$/, "");
+  const base = urlPublica();
   const logoUrl = `${base}/reconnectia-logo.png`;
 
   const ctaHtml = cta
@@ -66,6 +94,7 @@ export function emailLayout({
           ${cuerpoHtml}
           ${ctaHtml}
           ${ctaSecHtml}
+          ${pieHtml}
         </td></tr>
         <tr><td style="padding:22px 40px;border-top:1px solid #D6D2CA;font-family:Arial,Helvetica,sans-serif;">
           <span style="font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:#8B867E;">© 2026 Reconnect.iA · Powered by CeSeA Sistemas</span>

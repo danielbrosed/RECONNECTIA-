@@ -27,7 +27,12 @@ export const SESSION_VERSION_TTL_MS = 10_000;
 
 /** Lo que se guarda por usuario: la versión de sesión y el rol, que se refresca
  * desde la base en la misma lectura. */
-export type SessionState = { sessionVersion: number; role: string };
+export type SessionState = {
+  sessionVersion: number;
+  role: string;
+  /** G13 seguridad S2 (M5): cuenta bloqueada por administración (User.blockedAt). */
+  bloqueada?: boolean;
+};
 
 /** Versión que lleva el token. Lo que no sea un entero >= 0 vale 0: los tokens
  * emitidos antes del despliegue no traen el campo y las filas nacen en 0, así
@@ -45,6 +50,32 @@ export function sessionIsStale(tokenSv: number, dbVersion: number | null | undef
   if (dbVersion === undefined) return false;
   if (dbVersion === null) return true;
   return dbVersion !== tokenSv;
+}
+
+/**
+ * G13 seguridad S2 (M5): ¿hay que cerrar la sesión? La de siempre (versión
+ * distinta o cuenta borrada) y, además, cuenta bloqueada por administración.
+ */
+export function sesionDebeCerrarse(
+  tokenSv: number,
+  estado: SessionState | null | undefined,
+): boolean {
+  const dbVersion = estado === undefined ? undefined : estado === null ? null : estado.sessionVersion;
+  if (sessionIsStale(tokenSv, dbVersion)) return true;
+  return Boolean(estado?.bloqueada);
+}
+
+/**
+ * G13 seguridad S2 (M5): ¿puede entrar esta cuenta con la contraseña ya
+ * comprobada? Sin correo verificado o bloqueada, no (y el login responde lo
+ * mismo que con una contraseña incorrecta).
+ */
+export function cuentaPuedeEntrar(
+  u: { verified: boolean; blockedAt: Date | null },
+  exigirVerificacion = true,
+): boolean {
+  if (exigirVerificacion && !u.verified) return false;
+  return u.blockedAt === null;
 }
 
 export type VersionCache = {

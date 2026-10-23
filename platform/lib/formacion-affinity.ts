@@ -23,6 +23,7 @@
 
 import { PROVINCE_COORDS, haversineKm, resolveProvince } from "@/lib/geo";
 import { servicioScoreFor } from "@/lib/servicios";
+import { factorDistancia, pesoDistancia } from "@/lib/modalidades";
 
 const HALF_LIFE_KM = 430;
 
@@ -65,12 +66,13 @@ export function formacionAffinity(input: {
   profileServicios: readonly string[]; // servicios del perfil
   profilePlace: string | null | undefined; // provincia o ciudad del perfil
   servicios: readonly string[]; // servicios de la formación/curso
-  modality: string; // ONLINE | IN_PERSON | HYBRID
+  modality: string; // IN_PERSON | AULA_VIRTUAL | ONLINE | HYBRID (lib/roles MODALITIES)
   place: string | null | undefined; // ciudad/ubicación de la formación/curso
 }): FormacionAffinity {
   const sectorScore = sectorScoreFor(input.profileServicios, input.servicios);
 
-  if (input.modality === "ONLINE") {
+  // LOTE03 (L3-17): el peso de la distancia sale de lib/modalidades.ts (aula virtual y teleformación, 0).
+  if (pesoDistancia(input.modality) === 0) {
     return { score: sectorScore, sectorScore, distanceKm: null, distanceFactor: 1 };
   }
 
@@ -78,7 +80,7 @@ export function formacionAffinity(input: {
   let distanceFactor = 1;
   if (distanceKm != null) {
     const f = Math.exp(-distanceKm / HALF_LIFE_KM);
-    distanceFactor = input.modality === "HYBRID" ? 0.5 + 0.5 * f : f;
+    distanceFactor = factorDistancia(input.modality, f);
   }
 
   return {

@@ -5,6 +5,7 @@
 // título sin escapar, por eso se escapa aquí antes de pasárselo.
 
 import { CONTACTO_VALIDACION } from "@/lib/entidad/validacion";
+import { urlPublica } from "@/lib/email-config";
 import { emailLayout, emailParagraph } from "@/lib/emails/layout";
 
 function escapeHtml(s: string): string {
@@ -22,7 +23,7 @@ function primerNombre(nombre: string): string {
 
 /** Base pública de la app, sin barra final, para el enlace del botón. */
 function baseUrl(): string {
-  return (process.env.AUTH_URL ?? process.env.NEXTAUTH_URL ?? "").replace(/\/+$/, "");
+  return urlPublica();
 }
 
 export function entidadValidadaEmail(input: {

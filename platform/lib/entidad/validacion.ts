@@ -1,6 +1,8 @@
 // Estado de validación del alta de una entidad (H4). Fichero PURO: sin Prisma
 // ni Next, para poder probarlo con node:test y compartirlo entre el servidor y
 // los componentes de cliente (etiquetas, límites, rutas).
+
+import { casaRuta } from "@/lib/soft-launch";
 //
 // Regla del cliente: el registro de entidades es público, pero ninguna entidad
 // usa el portal hasta que administración valida su alta. El estado no se guarda
@@ -44,6 +46,31 @@ export const MOTIVO_RECHAZO_MAX = 500;
 
 /** Única ruta del portal que ve una entidad sin validar. */
 export const RUTA_PENDIENTE = "/portal/pendiente";
+
+/**
+ * LOTE02 (V4): pantallas del portal que usa una entidad PENDIENTE de validar
+ * («en preparación»): el estado de su alta, el formulario de validación, su
+ * ficha y sus cursos (que no salen en ningún catálogo hasta que la validen).
+ * El resto del portal exige la entidad validada. Mismo formato que RUTAS_V0.
+ * LOTE06 (L6-08): y su cartera de SkillPoints (saldo, historial y pedirlos por
+ * correo), como la empresa sin validar en /empresa/skp: una entidad es una
+ * empresa que imparte formación y compra SkillPoints igual.
+ */
+export const RUTAS_ENTIDAD_EN_PREPARACION = [
+  RUTA_PENDIENTE,
+  "/portal/alta/**",
+  "/portal/ficha",
+  "/portal/catalogo",
+  "/portal/cursos/nuevo",
+  "/portal/cursos/importar",
+  "/portal/cursos/*/editar",
+  "/portal/skillpoints",
+] as const;
+
+/** ¿Puede una entidad en preparación entrar en esta pantalla del portal? */
+export function rutaEntidadEnPreparacion(pathname: string): boolean {
+  return RUTAS_ENTIDAD_EN_PREPARACION.some((p) => casaRuta(pathname, p));
+}
 
 /** Valor de validatedBy de las entidades validadas en la migración inicial (anteriores a la regla). */
 export const VALIDADO_POR_MIGRACION = "migracion";

@@ -29,6 +29,19 @@ test("la ventana se reinicia al expirar", async () => {
   assert.equal(rateLimit(k, opts).allowed, true, "tras expirar la ventana vuelve a permitir");
 });
 
+test("G12: primerBloqueo solo en el primer rechazo de la ventana (una fila de auditoría por bloqueo)", () => {
+  const k = clave("primer");
+  const opts = { limit: 2, windowMs: 60_000 };
+  assert.equal(rateLimit(k, opts).primerBloqueo, undefined);
+  assert.equal(rateLimit(k, opts).primerBloqueo, undefined);
+  const primero = rateLimit(k, opts);
+  assert.equal(primero.allowed, false);
+  assert.equal(primero.primerBloqueo, true);
+  const segundo = rateLimit(k, opts);
+  assert.equal(segundo.allowed, false);
+  assert.equal(segundo.primerBloqueo, false);
+});
+
 test("claves distintas no se mezclan", () => {
   const a = clave("a");
   const b = clave("b");

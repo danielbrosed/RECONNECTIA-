@@ -1,33 +1,44 @@
+import type { ReactNode } from "react";
 import type { FormacionCardVM } from "@/lib/formaciones";
 import { FORMACION_MODALITY_LABELS } from "@/lib/formaciones";
+import { pesoDistancia } from "@/lib/modalidades";
 import { etiquetasServicios } from "@/lib/servicios";
+import { lineasFechas } from "@/lib/formaciones-sesiones-texto";
+
+/** LOTE07 (L7-09): sesiones que se listan en «Cuándo»; del resto, «y N sesiones más». */
+export const SESIONES_CARTA_MAX = 6;
+
+/** «Cuándo» de la carta: una línea por sesión (como mucho SESIONES_CARTA_MAX), el rango de antes o «Por definir». */
+export function lineasCuando(fechas: FormacionCardVM["fechas"]): string[] {
+  const lineas = lineasFechas(fechas);
+  if (lineas.length === 0) return ["Por definir"];
+  if (lineas.length <= SESIONES_CARTA_MAX) return lineas;
+  const resto = lineas.length - SESIONES_CARTA_MAX;
+  return [...lineas.slice(0, SESIONES_CARTA_MAX), `y ${resto} ${resto === 1 ? "sesión más" : "sesiones más"}`];
+}
 
 // Carta presentacional de una formación recomendada. Lenguaje marfil/tinta,
 // port del look de OfertaCard (panel/ofertas) pero con sello de afinidad y chips
-// de especialidades con highlight de las que coinciden con el perfil. Sin botones:
-// las acciones (like/dismiss) las gobierna FormacionSwipeDeck (gesto + botones).
-export default function FormacionCard({ formacion }: { formacion: FormacionCardVM }) {
+// de especialidades con highlight de las que coinciden con el perfil. Las acciones
+// (like/dismiss) las gobierna FormacionSwipeDeck (gesto + botones); los botones
+// van DENTRO de la carta de arriba (arreglos finales, G2), por `acciones`.
+export default function FormacionCard({ formacion, acciones }: { formacion: FormacionCardVM; acciones?: ReactNode }) {
   const modality = FORMACION_MODALITY_LABELS[formacion.modality] ?? formacion.modality;
-  const startStr = formacion.startDate
-    ? `${fmt(formacion.startDate)}${formacion.startTime ? " " + formacion.startTime : ""}`
-    : null;
-  const endStr = formacion.endDate
-    ? `${fmt(formacion.endDate)}${formacion.endTime ? " " + formacion.endTime : ""}`
-    : null;
-  const cuando = startStr ? (endStr ? `${startStr} – ${endStr}` : `Desde ${startStr}`) : "Por definir";
+  // LOTE07 (L7-09): por sesiones («Sesión 1: …», «Sesión 2: …»), no «desde-hasta».
+  const cuando = lineasCuando(formacion.fechas);
 
   const modalidadValue =
     [
       modality,
       formacion.city || formacion.location,
-      formacion.modality !== "ONLINE" && formacion.distanceKm != null
+      pesoDistancia(formacion.modality) > 0 && formacion.distanceKm != null
         ? `a ~${formacion.distanceKm} km de ti`
         : null,
     ]
       .filter(Boolean)
       .join(" · ") || "Sin dato";
 
-  const rows: { label: string; value: string }[] = [
+  const rows: { label: string; value: string | string[] }[] = [
     { label: "Cuándo", value: cuando },
     { label: "Modalidad", value: modalidadValue },
     ...(formacion.servicios.length > 0
@@ -69,7 +80,17 @@ export default function FormacionCard({ formacion }: { formacion: FormacionCardV
         {rows.map((r) => (
           <div key={r.label} className="flex items-baseline gap-3 px-3 py-2">
             <span className="eyebrow w-28 shrink-0">{r.label}</span>
-            <span className="text-sm text-[color:var(--color-ink)]">{r.value}</span>
+            {Array.isArray(r.value) ? (
+              <span className="text-sm text-[color:var(--color-ink)]" data-cuando-carta>
+                {r.value.map((l) => (
+                  <span key={l} className="block">
+                    {l}
+                  </span>
+                ))}
+              </span>
+            ) : (
+              <span className="text-sm text-[color:var(--color-ink)]">{r.value}</span>
+            )}
           </div>
         ))}
       </div>
@@ -99,11 +120,12 @@ export default function FormacionCard({ formacion }: { formacion: FormacionCardV
           </div>
         </div>
       )}
+
+      {acciones && (
+        <div className="mt-4 pt-3 border-t border-[color:var(--color-line)]" data-acciones-carta>
+          {acciones}
+        </div>
+      )}
     </div>
   );
-}
-
-function fmt(iso: string): string {
-  const [y, m, d] = iso.split("-");
-  return y && m && d ? `${d}/${m}/${y}` : iso;
 }

@@ -41,9 +41,9 @@ export const currentSessionState = createVersionReader({
   async load(userId) {
     const u = await prisma.user.findUnique({
       where: { id: userId },
-      select: { sessionVersion: true, role: true },
+      select: { sessionVersion: true, role: true, blockedAt: true },
     });
-    return u ? { sessionVersion: u.sessionVersion, role: u.role } : null;
+    return u ? { sessionVersion: u.sessionVersion, role: u.role, bloqueada: u.blockedAt !== null } : null;
   },
   onError: (e) => console.error("[session-version] no se pudo leer la versión de sesión:", e),
 });

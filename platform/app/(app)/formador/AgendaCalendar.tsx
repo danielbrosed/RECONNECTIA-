@@ -1,10 +1,12 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useMemo, useState } from "react";
+import { useEnvioUnico } from "@/app/_ui/useEnvioUnico";
 import { MESES_ES, DIAS_SEMANA } from "@/lib/schedule";
 import type { AgendaItemVM } from "@/lib/agenda";
 import type { AssignedFormacionVM } from "@/lib/formaciones";
 import { FORMACION_MODALITY_LABELS } from "@/lib/formaciones";
+import { diasDelCalendario, etiquetaSesion } from "@/lib/formaciones-sesiones-texto";
 import { deleteAgendaItemAction } from "./actions";
 import AgendaEventModal from "./AgendaEventModal";
 
@@ -12,6 +14,10 @@ import AgendaEventModal from "./AgendaEventModal";
 // panel/calendario/CalendarClient, pero desacoplada del tenant: aquí las fuentes
 // son las formaciones asignadas (Prisma, automáticas) y las entradas personales
 // del JSON TrainerProfile.agenda. Navegación de mes 100% en cliente.
+//
+// «Hoy» llega del servidor ya resuelto en hora de España (hoyEnMadrid): si se
+// calculara con new Date() aquí, servidor (UTC) y navegador no coincidirían
+// entre medianoche y la 1 o las 2, y la hidratación se desajustaría.
 
 type Entry = {
   key: string;
@@ -19,51 +25,63 @@ type Entry = {
   title: string;
   time: string | null;
   detail: string | null;
+  /** LOTE07 (L7-09): «Sesión 2 de 3» en las formaciones por sesiones. */
+  sesion?: string | null;
   item: AgendaItemVM | null; // solo entradas personales (para poder quitarlas)
-  // Solo formaciones: true = aceptada (verde), false = match pendiente (gris).
+  // Solo formaciones: true = asignada a ti (verde), false = «Me interesa» pendiente (gris).
   confirmed?: boolean;
 };
 
 const pad2 = (n: number) => String(n).padStart(2, "0");
 
+const ESTILO_PENDIENTE = "bg-[color:var(--color-paper-alt)] border border-[color:var(--color-line)]";
+const ESTILO_ASIGNADA =
+  "bg-[color:var(--color-ok-soft)] border border-[color:var(--color-ok)] text-[color:var(--color-ok)]";
+const ESTILO_PERSONAL = "border border-dashed border-[color:var(--color-mute)]";
+
 export default function AgendaCalendar({
   formaciones,
   items,
+  hoy,
 }: {
   formaciones: AssignedFormacionVM[];
   items: AgendaItemVM[];
+  /** Hoy en España, "YYYY-MM-DD". */
+  hoy: string;
 }) {
-  const now = new Date();
-  const [cm, setCm] = useState(() => new Date(now.getFullYear(), now.getMonth(), 1));
+  const [hy, hm, hd] = hoy.split("-").map(Number); // hm: 1..12
+  const [cm, setCm] = useState(() => ({ y: hy, m: hm - 1 }));
   const [selected, setSelected] = useState<number | null>(null);
   const [showAdd, setShowAdd] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [deleting, startDeleting] = useTransition();
+  const [deleting, startDeleting] = useEnvioUnico();
 
-  const y = cm.getFullYear();
-  const m = cm.getMonth(); // 0..11
+  const { y, m } = cm; // m: 0..11
+
+  function irA(nuevoY: number, nuevoM: number) {
+    const d = new Date(Date.UTC(nuevoY, nuevoM, 1));
+    setCm({ y: d.getUTCFullYear(), m: d.getUTCMonth() });
+    setSelected(null);
+  }
 
   const { cells, byDay } = useMemo(() => {
-    const fd = (new Date(y, m, 1).getDay() + 6) % 7; // lunes-primero
-    const dim = new Date(y, m + 1, 0).getDate();
+    // En UTC para que servidor y navegador den la misma rejilla.
+    const fd = (new Date(Date.UTC(y, m, 1)).getUTCDay() + 6) % 7; // lunes-primero
+    const dim = new Date(Date.UTC(y, m + 1, 0)).getUTCDate();
     const monthFirst = `${y}-${pad2(m + 1)}-01`;
     const monthLast = `${y}-${pad2(m + 1)}-${pad2(dim)}`;
     const byDay: Record<number, Entry[]> = {};
     const push = (day: number, e: Entry) => {
-      if (day < 1 || day > dim) return;
+      if (!Number.isInteger(day) || day < 1 || day > dim) return;
       (byDay[day] ??= []).push(e);
     };
 
-    // Formaciones asignadas: se pintan del inicio al fin, incluidos los rangos
-    // que cruzan meses (se recortan al mes visible).
+    // Formaciones: LOTE07 (L7-09) los días de sus fechas vigentes (calculadas
+    // en el servidor) que caen en el mes visible: con sesiones, cada día de
+    // sesión con sus horas y «Sesión n de m» (los días entre sesiones quedan
+    // vacíos); sin rondas (datos de antes), cada día del rango recortado al mes
+    // (revisión R7C-05: sin perder los meses del final de un rango largo).
     for (const f of formaciones) {
-      if (!f.startDate) continue;
-      const endISO = f.endDate ?? f.startDate;
-      if (endISO < monthFirst || f.startDate > monthLast) continue;
-      const fromDay = f.startDate < monthFirst ? 1 : Number(f.startDate.slice(8, 10));
-      const toDay = endISO > monthLast ? dim : Number(endISO.slice(8, 10));
-      const time =
-        f.startTime && f.endTime ? `${f.startTime} a ${f.endTime}` : f.startTime ?? null;
       const detail = [
         f.clientName,
         f.city,
@@ -71,32 +89,37 @@ export default function AgendaCalendar({
       ]
         .filter(Boolean)
         .join(" · ");
-      for (let d = fromDay; d <= toDay; d++) {
-        push(d, {
-          key: `f-${f.id}-${d}`,
+      diasDelCalendario(f.fechas, { desde: monthFirst, hasta: monthLast }).forEach((d, i) => {
+        const time = d.desde && d.hasta ? `${d.desde} a ${d.hasta}` : d.desde ?? null;
+        push(Number(d.dia.slice(8, 10)), {
+          key: `f-${f.id}-${d.dia}-${i}`,
           type: "formacion",
           title: f.title,
           time,
           detail: detail || null,
+          // Revisión R7C-06: una sesión sola no se numera («Sesión 1 de 1»).
+          sesion: d.sesion && d.sesion.de > 1 ? etiquetaSesion(d.sesion.n, d.sesion.de) : null,
           item: null,
           confirmed: f.confirmed,
         });
-      }
+      });
     }
 
-    for (const it of items) {
-      if (it.date.slice(0, 7) !== `${y}-${pad2(m + 1)}`) continue;
+    // El índice va en la clave: las entradas antiguas no tienen id y pueden
+    // repetir día y título.
+    items.forEach((it, idx) => {
+      if (it.date.slice(0, 7) !== `${y}-${pad2(m + 1)}`) return;
       const day = Number(it.date.slice(8, 10));
       const time = it.timeFrom ? (it.timeTo ? `${it.timeFrom} a ${it.timeTo}` : it.timeFrom) : null;
       push(day, {
-        key: `p-${it.id ?? `${it.date}-${it.title}`}`,
+        key: `p-${idx}-${it.id ?? "legado"}`,
         type: it.kind,
         title: it.title,
         time,
         detail: it.notes,
         item: it,
       });
-    }
+    });
 
     const cells: (number | null)[] = [
       ...Array(fd).fill(null),
@@ -105,21 +128,24 @@ export default function AgendaCalendar({
     return { cells, byDay };
   }, [y, m, formaciones, items]);
 
-  const today = now.getFullYear() === y && now.getMonth() === m ? now.getDate() : -1;
+  const today = hy === y && hm - 1 === m ? hd : -1;
   const selEntries = selected != null ? byDay[selected] ?? [] : [];
-  const defaultDate =
-    selected != null
-      ? `${y}-${pad2(m + 1)}-${pad2(selected)}`
-      : `${now.getFullYear()}-${pad2(now.getMonth() + 1)}-${pad2(now.getDate())}`;
+  const defaultDate = selected != null ? `${y}-${pad2(m + 1)}-${pad2(selected)}` : hoy;
+  const mesTexto = MESES_ES[m].toLowerCase();
 
   function quitar(item: AgendaItemVM) {
+    if (!window.confirm(`¿Quitar «${item.title}» de tu calendario?`)) return;
     startDeleting(async () => {
-      const res = await deleteAgendaItemAction({
-        id: item.id,
-        date: item.date,
-        title: item.title,
-      });
-      setError(res.ok ? null : res.error ?? "No se pudo quitar la entrada.");
+      try {
+        const res = await deleteAgendaItemAction({
+          id: item.id,
+          date: item.date,
+          title: item.title,
+        });
+        setError(res.ok ? null : res.error ?? "No se pudo quitar la entrada.");
+      } catch {
+        setError("No se pudo quitar la entrada. Revisa tu conexión e inténtalo de nuevo.");
+      }
     });
   }
 
@@ -129,24 +155,18 @@ export default function AgendaCalendar({
         <div className="flex items-center gap-2">
           <button
             type="button"
-            onClick={() => {
-              setCm(new Date(y, m - 1, 1));
-              setSelected(null);
-            }}
+            onClick={() => irA(y, m - 1)}
             aria-label="Mes anterior"
             className="px-3 py-1.5 border border-[color:var(--color-line)] hover:border-[color:var(--color-ink)]"
           >
             ‹
           </button>
-          <div className="h-card text-lg min-w-[160px] text-center">
+          <div className="h-card text-lg min-w-[160px] text-center" aria-live="polite">
             {MESES_ES[m]} {y}
           </div>
           <button
             type="button"
-            onClick={() => {
-              setCm(new Date(y, m + 1, 1));
-              setSelected(null);
-            }}
+            onClick={() => irA(y, m + 1)}
             aria-label="Mes siguiente"
             className="px-3 py-1.5 border border-[color:var(--color-line)] hover:border-[color:var(--color-ink)]"
           >
@@ -154,10 +174,7 @@ export default function AgendaCalendar({
           </button>
           <button
             type="button"
-            onClick={() => {
-              setCm(new Date(now.getFullYear(), now.getMonth(), 1));
-              setSelected(null);
-            }}
+            onClick={() => irA(hy, hm - 1)}
             className="ml-1 text-xs px-3 py-1.5 border border-[color:var(--color-line)] hover:border-[color:var(--color-ink)]"
           >
             Hoy
@@ -168,8 +185,27 @@ export default function AgendaCalendar({
         </button>
       </div>
 
+      {/* Leyenda antes de la rejilla: sin ella los colores no se entienden. */}
+      <ul
+        aria-label="Qué significa cada color"
+        className="flex flex-wrap gap-x-5 gap-y-2 text-sm text-[color:var(--color-ink-soft)]"
+      >
+        <li className="inline-flex items-center gap-2">
+          <span aria-hidden className={`w-3.5 h-3.5 ${ESTILO_PENDIENTE}`} />
+          Dijiste «Me interesa», pendiente
+        </li>
+        <li className="inline-flex items-center gap-2">
+          <span aria-hidden className={`w-3.5 h-3.5 ${ESTILO_ASIGNADA}`} />
+          Asignada a ti
+        </li>
+        <li className="inline-flex items-center gap-2">
+          <span aria-hidden className={`w-3.5 h-3.5 ${ESTILO_PERSONAL}`} />
+          Tus eventos y tareas
+        </li>
+      </ul>
+
       <div className="border-t border-l border-[color:var(--color-line)]">
-        <div className="grid grid-cols-7">
+        <div className="grid grid-cols-7" aria-hidden>
           {DIAS_SEMANA.map((d) => (
             <div
               key={d}
@@ -179,20 +215,30 @@ export default function AgendaCalendar({
             </div>
           ))}
         </div>
-        <div className="grid grid-cols-7" role="grid">
-          {cells.map((day, idx) =>
-            day === null ? (
-              <div
-                key={`e${idx}`}
-                aria-hidden
-                className="border-r border-b border-[color:var(--color-line)] min-h-[84px] bg-[color:var(--color-paper-alt)]/30"
-              />
-            ) : (
+        <div className="grid grid-cols-7">
+          {cells.map((day, idx) => {
+            if (day === null) {
+              return (
+                <div
+                  key={`e${idx}`}
+                  aria-hidden
+                  className="border-r border-b border-[color:var(--color-line)] min-h-[84px] bg-[color:var(--color-paper-alt)]/30"
+                />
+              );
+            }
+            const entradas = byDay[day] ?? [];
+            const n = entradas.length;
+            const esHoy = day === today;
+            return (
               <button
                 key={day}
                 type="button"
-                role="gridcell"
                 onClick={() => setSelected(selected === day ? null : day)}
+                aria-pressed={selected === day}
+                aria-current={esHoy ? "date" : undefined}
+                aria-label={`${day} de ${mesTexto}${esHoy ? ", hoy" : ""}, ${
+                  n === 0 ? "sin nada programado" : n === 1 ? "1 entrada" : `${n} entradas`
+                }`}
                 className={`text-left align-top border-r border-b border-[color:var(--color-line)] min-h-[84px] p-1.5 space-y-1 transition-colors ${
                   selected === day
                     ? "bg-[color:var(--color-paper-alt)]"
@@ -201,51 +247,37 @@ export default function AgendaCalendar({
               >
                 <span
                   className={`inline-block text-xs font-mono px-1 ${
-                    day === today
+                    esHoy
                       ? "bg-[color:var(--color-ink)] text-[color:var(--color-paper)]"
                       : "text-[color:var(--color-mute)]"
                   }`}
                 >
                   {day}
                 </span>
-                {(byDay[day] ?? []).slice(0, 2).map((e) => (
+                {entradas.slice(0, 2).map((e) => (
                   <span
                     key={e.key}
+                    title={e.sesion ? `${e.title} · ${e.sesion}` : undefined}
                     className={`block truncate text-[10px] leading-tight px-1 py-0.5 ${
                       e.type === "formacion"
                         ? e.confirmed
-                          ? "bg-[color:var(--color-ok-soft)] border border-[color:var(--color-ok)] text-[color:var(--color-ok)]"
-                          : "bg-[color:var(--color-paper-alt)] border border-[color:var(--color-line)]"
-                        : "border border-dashed border-[color:var(--color-mute)]"
+                          ? ESTILO_ASIGNADA
+                          : ESTILO_PENDIENTE
+                        : ESTILO_PERSONAL
                     }`}
                   >
                     {e.title}
                   </span>
                 ))}
-                {(byDay[day]?.length ?? 0) > 2 && (
+                {n > 2 && (
                   <span className="block text-[10px] text-[color:var(--color-mute)] px-1">
-                    +{(byDay[day]?.length ?? 0) - 2} más
+                    +{n - 2} más
                   </span>
                 )}
               </button>
-            ),
-          )}
+            );
+          })}
         </div>
-      </div>
-
-      <div className="flex flex-wrap gap-4 text-xs text-[color:var(--color-mute)]">
-        <span className="inline-flex items-center gap-1.5">
-          <span className="w-3 h-3 bg-[color:var(--color-paper-alt)] border border-[color:var(--color-line)]" />
-          Con match, pendientes de aceptar
-        </span>
-        <span className="inline-flex items-center gap-1.5">
-          <span className="w-3 h-3 bg-[color:var(--color-ok-soft)] border border-[color:var(--color-ok)]" />
-          Aceptadas (asignadas a ti)
-        </span>
-        <span className="inline-flex items-center gap-1.5">
-          <span className="w-3 h-3 border border-dashed border-[color:var(--color-mute)]" />
-          Eventos y tareas personales
-        </span>
       </div>
 
       {selected != null && (
@@ -274,16 +306,16 @@ export default function AgendaCalendar({
                     <span className="text-[10px] font-mono uppercase text-[color:var(--color-mute)] mr-2">
                       {e.type === "formacion"
                         ? e.confirmed
-                          ? "Formación aceptada"
-                          : "Match pendiente"
+                          ? "Asignada a ti"
+                          : "«Me interesa», pendiente"
                         : e.type === "tarea"
                           ? "Tarea"
                           : "Evento"}
                     </span>
                     <span className="font-medium">{e.title}</span>
-                    {(e.time || e.detail) && (
-                      <div className="text-xs text-[color:var(--color-mute)] mt-0.5">
-                        {[e.time, e.detail].filter(Boolean).join(" · ")}
+                    {(e.sesion || e.time || e.detail) && (
+                      <div className="text-xs text-[color:var(--color-mute)] mt-0.5" {...(e.sesion ? { "data-sesion-calendario": e.sesion } : {})}>
+                        {[e.sesion, e.time, e.detail].filter(Boolean).join(" · ")}
                       </div>
                     )}
                   </div>
@@ -312,7 +344,9 @@ export default function AgendaCalendar({
       )}
 
       {error && (
-        <div className="card !p-3 border-[color:var(--color-ink)] text-sm">{error}</div>
+        <div role="alert" className="card !p-3 border-[color:var(--color-ink)] text-sm">
+          {error}
+        </div>
       )}
 
       {showAdd && (

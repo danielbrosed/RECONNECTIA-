@@ -35,16 +35,16 @@ I designed and built the platform from scratch as its lead full-stack developer.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/progress/progress-dark.svg">
-  <img alt="Build progress: hardening and completion programme, 13 of 13 work packages; client change batches, 5 of 5 delivered; milestones from May 2026 to V1" src="docs/progress/progress-light.svg" width="100%">
+  <img alt="Build progress: hardening and completion programme, 13 of 13 work packages; client change batches, 7 of 7 delivered; milestones from May 2026 to V1" src="docs/progress/progress-light.svg" width="100%">
 </picture>
 
 <!-- progress:start -->
-_Last updated 16 Oct 2026 · V0 in production since 7 Jun 2026._
+_Last updated 23 Oct 2026 · V0 in production since 7 Jun 2026._
 
 | Track | Progress | |
 |---|---|---|
 | Hardening & completion programme | 13 / 13 work packages | **100%** |
-| Client change batches delivered | 6 / 6 batches | **100%** |
+| Client change batches delivered | 7 / 7 batches | **100%** |
 <!-- progress:end -->
 
 The card and both tables come from [`roadmap.json`](roadmap.json). When a milestone lands I edit that file and run [`tools/progress.mjs`](tools/progress.mjs), which redraws the card and rewrites these sections.
@@ -226,6 +226,7 @@ The rest of the source stays private. It is a live system with personal and empl
 | Sep 2026 | 124-course catalogue · WP1 | Done | Full CeSeA Formación catalogue imported with drift checks. Work package 1: versioned sessions, purpose-bound tokens, trusted client IP, entity validation, tests and acceptance harness. |
 | Oct 2026 | WP2 to WP13 · security pass | Done | Onboarding and validation for every role, entity course catalogues and scheduling, the trainer network, company job and training plans, an admin audit log and V0/V1 feature gating. Third security pass: encrypted national IDs and bank details, hashed one-time tokens, CSP with nonces, account suspension and erasure. |
 | Oct 2026 | Client change batches 1 to 6 | Done | Two-account sign-up for companies and entities, team rosters with per-section view or edit roles, service-based course codes with one course per delivery mode and hours, audience criteria shared with the public course websites, a trainer directory paid in SkillPoints and an entity-to-trainer chat. Four in-platform assessments (behavioural, projective, cognitive and vocational) unlocked with SkillPoints by the student or their employer, with verified results on the profile that employers can review. |
+| Oct 2026 | Client change batch 7 | Done | Trainers and entities can withdraw a pending request or invitation. Trainers pick one to three professions from the job catalogue, which drives a per-course affinity score: entities add trainers to a course from a searchable list ordered by fit, and trainers see the courses of their entities that match them and ask to join, with the entity approving. Course catalogue rebuilt to fit any screen with a large per-course scheduling button, delivery mode and hours as two linked dropdowns, session hours capped by the course, and dates read as numbered sessions everywhere instead of a from-to range. |
 | Later | V1 | Planned | Meeting booking after a rejected validation, semantic matching, online payments and offer packs, automated ECOE validation, full back office, mobile app. |
 <!-- roadmap:end -->
 

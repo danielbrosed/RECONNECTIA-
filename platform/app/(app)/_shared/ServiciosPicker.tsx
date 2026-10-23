@@ -14,6 +14,8 @@ import { useState } from "react";
 import { SERVICIOS, SERVICIO_LABELS, SERVICIOS_MAX, normalizarServicios } from "@/lib/servicios";
 
 type Props = {
+  /** id del bloque, para enlazar a él desde otra pantalla (/formador/perfil#servicios). */
+  id?: string;
   /** Nombre del campo del formulario. Por convención, "servicios". */
   name?: string;
   /** Servicios ya marcados al abrir. */
@@ -27,6 +29,7 @@ type Props = {
 };
 
 export default function ServiciosPicker({
+  id,
   name = "servicios",
   defaultValue = [],
   label = "Servicios",
@@ -56,7 +59,7 @@ export default function ServiciosPicker({
   }
 
   return (
-    <div>
+    <div id={id}>
       <label className="label-field">
         {label} ({valores.length}/{max})
       </label>

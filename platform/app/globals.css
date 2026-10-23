@@ -18,6 +18,18 @@
   --color-ok: #2F6B4F;
   --color-ok-soft: #E3EDE6;
 
+  /* LOTE02 (G1-M3): error de un campo. Rojo teja con contraste AA sobre el
+     marfil (6,5:1 sobre paper y 5,9:1 sobre paper-alt; lo comprueba
+     lib/lote02-final-b.test.ts). */
+  --color-rojo: #A12A1F;
+
+  /* LOTE03 (L3-08): naranja del botón «ACCEDER» de «Consulta tu crédito»,
+     tomado de la captura del cliente (encargos/lote03-capturas/
+     captura-boton-consulta.png: #D66018). El texto del botón va en blanco y
+     en mayúsculas, a tamaño de botón grande; el hover oscurece. */
+  --color-naranja: #D66018;
+  --color-naranja-hover: #B04E12;
+
   /* Fuentes */
   --font-sans: "Inter", "Switzer", system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-display: "Switzer", "Inter", system-ui, sans-serif;
@@ -32,6 +44,18 @@
   --ease-text: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-cam: cubic-bezier(0.65, 0, 0.35, 1);
   --ease-micro: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* LOTE05 (L5-06): la burbuja de los avisos (app/_ui/Burbuja.tsx), RELLENA:
+   fondo de la tinta y número del color del papel, para que destaque. Un modo
+   oscuro solo tiene que invertir estos dos tokens (data-tema="oscuro"). */
+:root {
+  --burbuja-bg: var(--color-ink);
+  --burbuja-fg: var(--color-paper);
+}
+:root[data-tema="oscuro"] {
+  --burbuja-bg: var(--color-paper);
+  --burbuja-fg: var(--color-ink);
 }
 
 @layer base {
@@ -169,4 +193,66 @@
     background: var(--color-line);
     width: 100%;
   }
+
+  /* LOTE05 (L5-06): círculo relleno con el número (app/_ui/Burbuja.tsx). El
+     anillo del color del número la separa de un fondo oscuro (la pestaña o el
+     área activas, que van en tinta); sobre el papel no se ve. */
+  .burbuja {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 1.25rem;
+    height: 1.25rem;
+    padding: 0 0.3rem;
+    border-radius: 9999px;
+    background: var(--burbuja-bg);
+    color: var(--burbuja-fg);
+    box-shadow: 0 0 0 1.5px var(--burbuja-fg);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0;
+    text-transform: none;
+    vertical-align: middle;
+  }
+}
+
+/* LOTE01 (A9): raya de carga de la pestaña pulsada (AppNav). */
+@keyframes rci-carga {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(300%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-navegando] > span { animation: none !important; width: 100% !important; opacity: 0.6; }
+}
+
+/* LOTE02 (G1-M3): un campo con error se ve en rojo (borde y mensaje), no solo
+   por el texto. Fuera de las capas a propósito: así gana a .input-field y a las
+   clases de color que ya llevan los mensajes, sin tocar cada formulario. */
+[aria-invalid="true"] {
+  border-color: var(--color-rojo);
+}
+.input-field[aria-invalid="true"] {
+  border-color: var(--color-rojo);
+  box-shadow: inset 3px 0 0 var(--color-rojo);
+}
+.input-field[aria-invalid="true"]:focus {
+  border-color: var(--color-rojo);
+  outline: 1px solid var(--color-rojo);
+}
+[data-error-campo] {
+  color: var(--color-rojo);
+}
+
+/* LOTE05 (L5-05): dentro de una zona de solo lectura (ZonaEdicion, un fieldset
+   con data-zona-edicion desactivado) los botones y campos se ven desactivados.
+   Fuera de las capas, como la regla de arriba, para ganar a las clases de cada
+   botón; un enlace (<a>, p. ej. «Escribir» del chat) no se desactiva. */
+/* Arreglos (RB5-12): solo dentro de la zona desactivada (no cualquier control
+   desactivado de una zona editable, como un botón «Guardando…»). */
+[data-zona-edicion]:disabled :is(button, input, select, textarea) {
+  opacity: 0.55;
+  cursor: not-allowed;
 }

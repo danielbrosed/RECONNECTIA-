@@ -4,15 +4,31 @@ import { useEffect, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import type { FormacionCardVM } from "@/lib/formaciones";
 import { KM_WARN_THRESHOLD } from "@/lib/formacion-affinity";
+import { MIXTA, pesoDistancia } from "@/lib/modalidades";
 import ModalShell from "../panel/ofertas/ModalShell";
 import FormacionCard from "./FormacionCard";
-import { likeFormacionAction, dismissFormacionAction } from "./actions";
+import { MSG_DESCARTE } from "@/lib/formador-descartes";
+import { likeFormacionAction, dismissFormacionAction, recuperarFormacionAction, type SwipeResult } from "./actions";
 
 type Dir = "like" | "dismiss";
 
+/**
+ * Evento de ventana con el que el bloque «Descartadas» avisa al tablero de que
+ * una formación se ha recuperado: así vuelve a la pila aunque se hubiera
+ * descartado en esta misma visita (la pila guarda lo ya resuelto).
+ */
+export const EVENTO_RECUPERADA = "rci:formacion-recuperada";
+
+const ERROR_CONEXION = "No hemos podido conectar con el servidor. Revisa la conexión e inténtalo de nuevo.";
+
+/** LOTE07 (L7-08): el aviso del tablero cuando la descartada ya tiene formador. */
+export const MSG_AVISO_CUBIERTA = "Ya tiene formador: ya no puedes deshacer el descarte.";
+
 // Pila de cartas tipo Tinder con arrastre real (Pointer Events + CSS transform),
-// sin dependencias de animación. Arrastrar a la derecha = "me interesa" (solicita
-// interés, va al súper-admin); a la izquierda = descartar. Botones de respaldo y
+// sin dependencias de animación. Arrastrar a la derecha = "me interesa" (llega a
+// la entidad formativa y a administración); a la izquierda = descartar, con
+// «Deshacer» (G09a H3; LOTE07 L7-08: sin plazo, mientras la formación no tenga
+// formador; el aviso se queda hasta otro descarte, «Cerrar» o deshacer). Botones de respaldo y
 // teclado (←/→) disparan la misma salida. Optimista: avanza al soltar y revierte
 // si la server action falla.
 //
@@ -23,9 +39,12 @@ type Dir = "like" | "dismiss";
 export default function FormacionSwipeDeck({
   formaciones,
   verTodasHref,
+  sinEntidades = false,
 }: {
   formaciones: FormacionCardVM[];
   verTodasHref?: string;
+  /** LOTE01 (F3/F4): ninguna entidad le ha validado: el tablero vacío lo explica. */
+  sinEntidades?: boolean;
 }) {
   const [resueltas, setResueltas] = useState<string[]>([]);
   const [dx, setDx] = useState(0);
@@ -33,6 +52,12 @@ export default function FormacionSwipeDeck({
   const [flyOut, setFlyOut] = useState<{ id: string; dir: Dir } | null>(null);
   const [avisoKm, setAvisoKm] = useState<FormacionCardVM | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // G09a H3: «Descartada · Deshacer» tras descartar, y la carta recuperada vuelve
+  // la primera de la pila. LOTE07 (L7-08): sin temporizador; se queda el del
+  // último descarte hasta «Cerrar», deshacer u otro descarte. Si ya tiene
+  // formador (cubierta), lo dice y no ofrece deshacer.
+  const [deshacer, setDeshacer] = useState<{ id: string; title: string; cubierta?: boolean } | null>(null);
+  const [alFrente, setAlFrente] = useState<string | null>(null);
   const [, startTransition] = useTransition();
 
   const draggingRef = useRef(false);
@@ -42,7 +67,24 @@ export default function FormacionSwipeDeck({
   const resolviendoRef = useRef<string | null>(null);
   const temporizadorRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const cola = formaciones.filter((f) => !resueltas.includes(f.id));
+  // Una formación recuperada desde «Descartadas» vuelve a la pila (y la primera).
+  // Revisión R7C-03: si el aviso del tablero era de esa, se quita (ya está deshecha).
+  useEffect(() => {
+    function alRecuperar(e: Event) {
+      const id = (e as CustomEvent<string>).detail;
+      if (!id) return;
+      setResueltas((r) => r.filter((x) => x !== id));
+      setAlFrente(id);
+      setDeshacer((d) => (d && d.id === id ? null : d));
+    }
+    window.addEventListener(EVENTO_RECUPERADA, alRecuperar);
+    return () => window.removeEventListener(EVENTO_RECUPERADA, alRecuperar);
+  }, []);
+
+  const pendientes = formaciones.filter((f) => !resueltas.includes(f.id));
+  const cola = alFrente
+    ? [...pendientes.filter((f) => f.id === alFrente), ...pendientes.filter((f) => f.id !== alFrente)]
+    : pendientes;
   const top = cola[0];
   const next = cola[1];
   const tercera = cola[2];
@@ -68,25 +110,103 @@ export default function FormacionSwipeDeck({
     }
     setFlyOut(null);
     setResueltas((r) => (r.includes(id) ? r : [...r, id]));
+    if (alFrente === id) setAlFrente(null);
+    const title = formaciones.find((f) => f.id === id)?.title ?? "";
     startTransition(async () => {
-      const res =
-        dir === "like"
-          ? await likeFormacionAction({ formacionId: id })
-          : await dismissFormacionAction({ formacionId: id });
+      let res: SwipeResult;
+      try {
+        res =
+          dir === "like"
+            ? await likeFormacionAction({ formacionId: id })
+            : await dismissFormacionAction({ formacionId: id });
+      } catch {
+        res = { ok: false, error: ERROR_CONEXION };
+      }
       if (!res.ok) {
         setResueltas((r) => r.filter((x) => x !== id)); // vuelve a la cola
         setError(res.error ?? "No se pudo completar la acción.");
       } else {
         setError(null);
+        // Revisión R7C-04: si ya no estaba en su tablero no se ha guardado nada:
+        // con formador se dice (sin «Deshacer»); si no, no hay aviso.
+        if (dir === "dismiss") {
+          setDeshacer(res.motivo === "CUBIERTA" ? { id, title, cubierta: true } : res.motivo ? null : { id, title });
+        }
       }
       resolviendoRef.current = null;
     });
   }
 
+  /**
+   * «Deshacer»: recupera el descarte y la carta vuelve la primera. Si ya tiene
+   * formador, el aviso lo dice (sin «Deshacer») y el descarte se queda.
+   */
+  function deshacerDescarte() {
+    const d = deshacer;
+    if (!d || d.cubierta) return;
+    setDeshacer(null);
+    startTransition(async () => {
+      let res: SwipeResult;
+      try {
+        res = await recuperarFormacionAction({ formacionId: d.id });
+      } catch {
+        res = { ok: false, error: ERROR_CONEXION };
+      }
+      if (!res.ok) {
+        if (res.motivo === "CUBIERTA") {
+          setError(null);
+          // Salvo que entretanto haya descartado otra: entonces manda la nueva.
+          setDeshacer((actual) => actual ?? { ...d, cubierta: true });
+          return;
+        }
+        // Revisión R7C-03: ya se deshizo (desde «Descartadas» o en otra pestaña): no es un error.
+        if (res.error === MSG_DESCARTE.noDescartada) {
+          setError(null);
+          return;
+        }
+        setError(res.error ?? "No se pudo deshacer el descarte.");
+        return;
+      }
+      setError(null);
+      setResueltas((r) => r.filter((x) => x !== d.id));
+      setAlFrente(d.id);
+    });
+  }
+
+  const avisoDeshacer = deshacer && (
+    <div
+      role="status"
+      className="card !p-3 text-sm flex flex-wrap items-center justify-between gap-3"
+      data-deshacer={deshacer.id}
+      {...(deshacer.cubierta ? { "data-deshacer-cubierta": "" } : {})}
+    >
+      <span>
+        {deshacer.cubierta
+          ? MSG_AVISO_CUBIERTA
+          : `Descartada${deshacer.title ? ` «${deshacer.title}»` : ""}`}
+      </span>
+      <span className="flex items-center gap-2">
+        {!deshacer.cubierta && (
+          <button type="button" onClick={deshacerDescarte} className="btn-ghost !py-1 !px-3 text-xs">
+            Deshacer
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={() => setDeshacer(null)}
+          className="text-xs text-[color:var(--color-mute)] hover:text-[color:var(--color-ink)]"
+          data-cerrar-deshacer
+        >
+          Cerrar
+        </button>
+      </span>
+    </div>
+  );
+
   // Un LIKE a una formación con desplazamiento largo pide confirmación antes de
   // salir: se avisa de los km (gesto, botones y teclado pasan todos por aquí).
   function necesitaAvisoKm(f: FormacionCardVM): boolean {
-    return f.modality !== "ONLINE" && f.distanceKm != null && f.distanceKm > KM_WARN_THRESHOLD;
+    return pesoDistancia(f.modality) > 0 && f.distanceKm != null && f.distanceKm > KM_WARN_THRESHOLD;
   }
 
   function triggerExit(dir: Dir, opts?: { confirmado?: boolean }) {
@@ -118,6 +238,8 @@ export default function FormacionSwipeDeck({
 
   function onPointerDown(e: React.PointerEvent) {
     if (flyOut || !top) return;
+    // Los botones de la carta (G2) se pulsan, no se arrastran.
+    if (e.target instanceof Element && e.target.closest("button, a")) return;
     draggingRef.current = true;
     setDragging(true);
     startXRef.current = e.clientX;
@@ -177,24 +299,38 @@ export default function FormacionSwipeDeck({
   const salida = flying ? 1 : dragging ? Math.min(Math.abs(dx) / 120, 1) : 0;
 
   if (!top) {
+    // LOTE01 (F4): sin ninguna entidad que le haya validado el tablero está
+    // vacío por eso, no por el perfil; se dice tal cual y se le lleva a pedirlo.
+    const porEntidades = sinEntidades && !allDone;
     return (
-      <div className="max-w-xl mx-auto">
+      <div className="max-w-xl mx-auto space-y-3">
         <div className="card !p-8 text-center">
           <div className="h-card">
-            {allDone ? "¡Listo! Has revisado todas tus recomendaciones" : "No hay formaciones recomendadas ahora"}
+            {allDone
+              ? "¡Listo! Has revisado todas tus recomendaciones"
+              : porEntidades
+                ? "Todavía no te ha validado ninguna entidad"
+                : "No hay formaciones recomendadas ahora"}
           </div>
           <p className="text-sm text-[color:var(--color-mute)] mt-2">
             {allDone
               ? "Cuando se publiquen nuevas formaciones que encajen con tu perfil, volverán a aparecer aquí."
-              : "Cuando haya formaciones disponibles para tu perfil, aparecerán aquí."}
+              : porEntidades
+                ? "Ves las formaciones de las entidades que te han validado. Pide unirte a una desde «Mis entidades»."
+                : "Cuando haya formaciones disponibles para tu perfil, aparecerán aquí."}
           </p>
-          <Link href="/formador/perfil" className="btn-ghost mt-4 inline-flex">
-            Completa tu perfil →
-          </Link>
+          {porEntidades ? (
+            <Link href="/formador/entidades" className="btn-ghost mt-4 inline-flex">
+              Ir a Mis entidades →
+            </Link>
+          ) : (
+            <Link href="/formador/perfil" className="btn-ghost mt-4 inline-flex">
+              Completa tu perfil →
+            </Link>
+          )}
         </div>
-        {error && (
-          <div className="card !p-3 border-[color:var(--color-ink)] text-sm mt-3">{error}</div>
-        )}
+        {avisoDeshacer}
+        {error && <div className="card !p-3 border-[color:var(--color-ink)] text-sm">{error}</div>}
       </div>
     );
   }
@@ -286,37 +422,41 @@ export default function FormacionSwipeDeck({
             Descartar
           </span>
 
-          <FormacionCard formacion={top} />
+          {/* Botones de respaldo (siempre visibles, accesibles), DENTRO de la carta (arreglos finales, G2). */}
+          <FormacionCard
+            formacion={top}
+            acciones={
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => triggerExit("dismiss")}
+                  disabled={!!flyOut}
+                  className="btn-ghost flex-1 justify-center"
+                  aria-label="Descartar esta formación"
+                >
+                  ← Descartar
+                </button>
+                <button
+                  type="button"
+                  onClick={() => triggerExit("like")}
+                  disabled={!!flyOut}
+                  className="btn-solid flex-[2] justify-center"
+                  aria-label="Me interesa esta formación"
+                >
+                  Me interesa →
+                </button>
+              </div>
+            }
+          />
         </div>
       </div>
-      </div>
-
-      {/* Botones de respaldo (siempre visibles, accesibles) */}
-      <div className="flex gap-3 pt-1">
-        <button
-          type="button"
-          onClick={() => triggerExit("dismiss")}
-          disabled={!!flyOut}
-          className="btn-ghost flex-1 justify-center"
-          aria-label="Descartar esta formación"
-        >
-          ← Descartar
-        </button>
-        <button
-          type="button"
-          onClick={() => triggerExit("like")}
-          disabled={!!flyOut}
-          className="btn-solid flex-[2] justify-center"
-          aria-label="Me interesa esta formación"
-        >
-          Me interesa →
-        </button>
       </div>
 
       <p aria-live="polite" className="sr-only">
         {remaining} formaciones recomendadas pendientes.
       </p>
 
+      {avisoDeshacer}
       {error && <div className="card !p-3 border-[color:var(--color-ink)] text-sm">{error}</div>}
 
       {avisoKm && (
@@ -329,8 +469,8 @@ export default function FormacionSwipeDeck({
               </h3>
             </div>
             <p className="text-sm text-[color:var(--color-ink-soft)]">
-              {avisoKm.modality === "HYBRID"
-                ? `«${avisoKm.title}» es híbrida con parte presencial en ${
+              {avisoKm.modality === MIXTA
+                ? `«${avisoKm.title}» es mixta, con parte presencial en ${
                     avisoKm.city || avisoKm.location || "otra provincia"
                   }, a unos ${avisoKm.distanceKm} km de tu ubicación.`
                 : `«${avisoKm.title}» es presencial en ${

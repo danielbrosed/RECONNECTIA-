@@ -3,6 +3,8 @@
 // diffHours/formatHours/buildDatesString; calendar.jsx: detectScheduleClash).
 // Funciones puras, SIN acceso a DB ni a tenant → usables en cliente y servidor.
 
+import { excesoHoras, mensajeExcesoHoras } from "@/lib/sesiones-horas";
+
 export type Session = { day: string; from: string; to: string };
 export type ScheduleCheck = { ok: boolean; error: string };
 
@@ -44,6 +46,62 @@ export function validateScheduleSequence(
     }
   }
   return { ok: true, error: "" };
+}
+
+// ── Coherencia de las sesiones (editor compartido y servidor) ──────────────
+// Una sesión cuyo fin no es posterior a su inicio, o dos sesiones del mismo día
+// que se pisan, no se pueden impartir. Lo comprueba el editor para avisar en
+// pantalla y validarRound (lib/formaciones-fechas.ts) para rechazarlo en el
+// servidor, con los mismos textos.
+
+/** "YYYY-MM-DD" → "DD/MM/YYYY" para los mensajes. */
+function diaLegible(iso: string): string {
+  return iso.split("-").reverse().join("/");
+}
+
+/** Primer par de sesiones (índices en el orden recibido) que se solapan el mismo día. */
+export function primerSolape(sessions: Session[]): [number, number] | null {
+  for (let i = 0; i < sessions.length; i++) {
+    const a = sessions[i];
+    if (!a.day || !a.from || !a.to || a.to <= a.from) continue;
+    for (let j = i + 1; j < sessions.length; j++) {
+      const b = sessions[j];
+      if (b.day !== a.day || !b.from || !b.to || b.to <= b.from) continue;
+      // Tocarse (una acaba a las 13:00 y la otra empieza a las 13:00) no es solaparse.
+      if (a.from < b.to && b.from < a.to) return [i, j];
+    }
+  }
+  return null;
+}
+
+/**
+ * Mensajes que enseña el editor de sesiones. Vacío si todo cuadra.
+ * LOTE07 (L7-07): con `horasMax` (las horas del curso), también si las sesiones
+ * suman más (el mismo texto que dan las acciones del servidor).
+ */
+export function problemasSesiones(sessions: Session[], opciones: { horasMax?: number | null } = {}): string[] {
+  const out: string[] = [];
+  sessions.forEach((s, i) => {
+    if (s.from && s.to && s.to <= s.from) {
+      out.push(`Sesión ${i + 1}: la hora de fin tiene que ser posterior a la de inicio.`);
+    }
+  });
+  const solape = primerSolape(sessions);
+  if (solape) {
+    const [i, j] = solape;
+    out.push(`Las sesiones ${i + 1} y ${j + 1} se solapan el ${diaLegible(sessions[i].day)}. Cambia la hora o el día de una de ellas.`);
+  }
+  const exceso = excesoHoras(sessions, opciones.horasMax);
+  if (exceso) out.push(mensajeExcesoHoras(exceso));
+  return out;
+}
+
+/** Día siguiente a "YYYY-MM-DD" (para proponer la sesión nueva sin pisar la anterior). */
+export function diaSiguiente(iso: string): string {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return "";
+  const d = new Date(`${iso}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + 1);
+  return d.toISOString().slice(0, 10);
 }
 
 // "HH:MM" + horas → "HH:MM". El sistema sugiere la hora_fin a partir de las

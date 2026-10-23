@@ -89,6 +89,25 @@ export function etiquetasServicios(valores: readonly string[]): string[] {
 }
 
 /**
+ * Etiquetas de los servicios de una empresa a partir de sus columnas JSON: los
+ * servicios (campo vivo) o, si la ficha es anterior a la ronda 6, los que se
+ * deducen de sus sectores antiguos. Lo usan /admin/empresas y la ficha de
+ * empresa del portal de la entidad (G08b).
+ */
+export function etiquetasServiciosEmpresa(serviciosJson: string | null | undefined, sectoresJson: string | null | undefined): string[] {
+  const leer = (json: string | null | undefined): string[] => {
+    try {
+      const v = JSON.parse(json ?? "[]");
+      return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
+    } catch {
+      return [];
+    }
+  };
+  const propios = leer(serviciosJson);
+  return propios.length ? etiquetasServicios(propios) : etiquetasServicios(serviciosDesdeSectores(leer(sectoresJson)));
+}
+
+/**
  * Puntuación de servicio entre dos listas: 100 si comparten alguno, 50 neutral
  * si a alguno de los dos lados le falta el dato, 0 si no coinciden. Es el
  * equivalente de sectorScoreFor() con lista a ambos lados. Ver

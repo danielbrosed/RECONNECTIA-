@@ -1,7 +1,7 @@
 {
   "$comment": "Single source of truth for the progress card and the README progress/roadmap sections. Edit, then run: node tools/progress.mjs",
   "product": "Reconnect.iA",
-  "updated": "2026-10-16",
+  "updated": "2026-10-23",
   "release": {
     "label": "V0",
     "status": "In production",
@@ -21,8 +21,8 @@
     {
       "id": "batches",
       "label": "Client change batches delivered",
-      "done": 6,
-      "total": 6,
+      "done": 7,
+      "total": 7,
       "unit": "batches",
       "segmented": true,
       "note": "Change requests from the operator since go-live, each one built, reviewed, regression-tested and deployed."
@@ -34,11 +34,11 @@
       "label": "user roles"
     },
     {
-      "value": "183",
+      "value": "184",
       "label": "pages"
     },
     {
-      "value": "115",
+      "value": "125",
       "label": "server-action modules"
     },
     {
@@ -46,11 +46,11 @@
       "label": "data models"
     },
     {
-      "value": "89",
+      "value": "90",
       "label": "migrations"
     },
     {
-      "value": "192k",
+      "value": "196k",
       "label": "lines of TypeScript"
     }
   ],
@@ -96,6 +96,12 @@
       "title": "Client change batches 1 to 6",
       "status": "done",
       "detail": "Two-account sign-up for companies and entities, team rosters with per-section view or edit roles, service-based course codes with one course per delivery mode and hours, audience criteria shared with the public course websites, a trainer directory paid in SkillPoints and an entity-to-trainer chat. Four in-platform assessments (behavioural, projective, cognitive and vocational) unlocked with SkillPoints by the student or their employer, with verified results on the profile that employers can review."
+    },
+    {
+      "date": "2026-10",
+      "title": "Client change batch 7",
+      "status": "done",
+      "detail": "Trainers and entities can withdraw a pending request or invitation. Trainers pick one to three professions from the job catalogue, which drives a per-course affinity score: entities add trainers to a course from a searchable list ordered by fit, and trainers see the courses of their entities that match them and ask to join, with the entity approving. Course catalogue rebuilt to fit any screen with a large per-course scheduling button, delivery mode and hours as two linked dropdowns, session hours capped by the course, and dates read as numbered sessions everywhere instead of a from-to range."
     },
     {
       "date": "later",

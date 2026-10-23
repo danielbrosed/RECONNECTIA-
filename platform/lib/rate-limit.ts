@@ -12,7 +12,11 @@ type Bucket = { count: number; resetAt: number };
 const store = new Map<string, Bucket>();
 let lastSweep = 0;
 
-export type RateLimitResult = { allowed: boolean; retryAfterSec: number };
+/**
+ * `primerBloqueo` (G12): true solo en la PRIMERA petición rechazada de la
+ * ventana, para registrar un bloqueo una vez y no una por intento.
+ */
+export type RateLimitResult = { allowed: boolean; retryAfterSec: number; primerBloqueo?: boolean };
 
 /**
  * Cuenta `key` dentro de una ventana de `windowMs`. Permite hasta `limit`
@@ -43,6 +47,7 @@ export function rateLimit(
       return {
         allowed: false,
         retryAfterSec: Math.max(1, Math.ceil((bucket.resetAt - now) / 1000)),
+        primerBloqueo: bucket.count === opts.limit + 1,
       };
     }
     return { allowed: true, retryAfterSec: 0 };

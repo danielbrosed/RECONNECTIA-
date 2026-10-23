@@ -1,52 +1,60 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import type { LockedTalentVM } from "@/lib/empresa/talento";
-import WhatsAppTopupDialog from "@/lib/skp/WhatsAppTopupDialog";
-import { unlockCardAction } from "./gate-actions";
+import CompraSkillPointsDialog from "@/lib/skp/CompraSkillPointsDialog";
+import { useGuardado } from "@/app/_ui/useGuardado";
+import { unlockCardAction, unlockFichaAction } from "./gate-actions";
+import { ZonaGasto } from "@/app/_ui/ZonaGasto";
 
 // Tarjeta BLOQUEADA de la búsqueda de talento (estilo Tinder). Los datos que
 // recibe ya vienen anonimizados del servidor: el blur es solo estética, no
 // esconde información real.
-export default function LockedTalentCard({
+//
+// LOTE02 (E2): las 3 primeras tarjetas son gratis UNA SOLA VEZ y nada se
+// recarga solo. Agotadas, la tarjeta ofrece «Ver ficha por N SkillPoints» (el
+// pago de ficha de siempre, 2 a 10 según el perfil); sin saldo, la compra por
+// correo (G11, L5-16). Guardado común (useGuardado): un clic, una petición, sin
+// transiciones propias.
+// LOTE05-R (respuesta de Daniel a la decisión 11): desbloquear también con
+// «Ver» en «Buscar talento» (antes solo con «Editar»).
+function TarjetaBloqueada({
   candidate,
   freeLeft,
-  resetAt,
   saldo,
+  mensajeCompra,
 }: {
   candidate: LockedTalentVM;
   freeLeft: number;
-  resetAt: string | null;
   saldo: number;
+  /** Correo de compra con el nombre y el CIF de la empresa (G11). */
+  /** null: quien mira es una persona con un rol (arreglos del LOTE04, RA-10): no se le ofrece comprar. */
+  mensajeCompra: string | null;
 }) {
   const router = useRouter();
-  const [pending, startTransition] = useTransition();
-  const [popup, setPopup] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  function desbloquear() {
-    setError(null);
-    startTransition(async () => {
-      const res = await unlockCardAction(candidate.id);
-      if (!res.ok) {
-        if (res.code === "SIN_CUPO") {
-          router.refresh();
-          return;
-        }
-        setError(res.error ?? "No se pudo desbloquear.");
-        return;
-      }
-      router.refresh();
-    });
-  }
-
-  const horaReset = resetAt
-    ? new Date(resetAt).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })
-    : null;
+  const [popup, setPopup] = useState<{ coste: number; saldo: number } | null>(null);
+  const tarjeta = useGuardado(() => unlockCardAction(candidate.id), {
+    alGuardar: () => router.refresh(),
+    alFallar: (r) => {
+      if (r.code === "SIN_CUPO") router.refresh();
+    },
+    mensajeFallo: "No hay conexión. Inténtalo de nuevo.",
+  });
+  const ficha = useGuardado(() => unlockFichaAction(candidate.id), {
+    alGuardar: () => router.push(`/empresa/candidatos/${candidate.id}`),
+    alFallar: (r) => {
+      if (r.code === "SIN_SALDO") setPopup({ coste: r.coste ?? candidate.precioFicha, saldo: r.saldo ?? saldo });
+    },
+    mensajeFallo: "No hay conexión. Inténtalo de nuevo.",
+  });
+  // Sin cupo, la tarjeta se refresca sola; sin saldo, sale la compra por correo: no son errores que enseñar.
+  const sinCupo = tarjeta.resultado?.code === "SIN_CUPO";
+  const sinSaldo = ficha.resultado?.code === "SIN_SALDO";
+  const error = (sinCupo ? null : tarjeta.error) ?? (sinSaldo ? null : ficha.error);
 
   return (
-    <li className="card relative overflow-hidden flex flex-col gap-3">
+    <li className="card relative overflow-hidden flex flex-col gap-3" data-tarjeta-bloqueada={candidate.id}>
       {/* Contenido anonimizado y desenfocado */}
       <div className="blur-sm select-none pointer-events-none" aria-hidden>
         <div className="h-card">{candidate.initials}</div>
@@ -70,45 +78,51 @@ export default function LockedTalentCard({
 
       {/* Overlay de desbloqueo */}
       <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-[color:var(--color-paper)]/70 p-4 text-center">
+        <span className="eyebrow">Perfil bloqueado</span>
         {freeLeft > 0 ? (
-          <>
-            <span className="eyebrow">Perfil bloqueado</span>
-            <button
-              type="button"
-              onClick={desbloquear}
-              disabled={pending}
-              className="btn-solid text-xs"
-            >
-              {pending ? "Desbloqueando…" : `Desbloquear (te quedan ${freeLeft})`}
-            </button>
-          </>
+          <button
+            type="button"
+            onClick={() => void tarjeta.enviar(new FormData())}
+            disabled={tarjeta.guardando}
+            className="btn-solid text-xs"
+            data-desbloquear-gratis
+          >
+            {tarjeta.guardando ? "Desbloqueando…" : `Desbloquear gratis (te quedan ${freeLeft})`}
+          </button>
         ) : (
-          <>
-            <span className="eyebrow">No te quedan desbloqueos</span>
-            {horaReset && (
-              <p className="text-xs text-[color:var(--color-ink-soft)]">
-                Se recargan a las {horaReset}.
-              </p>
-            )}
-            <button
-              type="button"
-              onClick={() => setPopup(true)}
-              className="btn-ghost text-xs"
-            >
-              Comprar SkillPoints
-            </button>
-          </>
+          <button
+            type="button"
+            onClick={() => void ficha.enviar(new FormData())}
+            disabled={ficha.guardando}
+            className="btn-solid text-xs"
+            data-ver-ficha-pagando={candidate.precioFicha}
+          >
+            {ficha.guardando ? "Abriendo…" : `Ver ficha por ${candidate.precioFicha} SkillPoints`}
+          </button>
         )}
         {error && <p className="text-xs text-[color:var(--color-mute)]">{error}</p>}
       </div>
 
-      <WhatsAppTopupDialog
-        abierto={popup}
-        onClose={() => setPopup(false)}
-        saldo={saldo}
-        coste={0}
-        mensaje="Hola, quiero desbloquear perfiles de talento en RECONNECTIA y quiero comprar SkillPoints."
+      <CompraSkillPointsDialog
+        abierto={popup !== null}
+        onClose={() => setPopup(null)}
+        saldo={popup?.saldo ?? saldo}
+        coste={popup?.coste ?? candidate.precioFicha}
+        mensaje={mensajeCompra}
       />
     </li>
+  );
+}
+
+/**
+ * LOTE05-R (respuesta de Daniel a la decisión 11): lo que gasta SkillPoints lo
+ * hace también quien solo VE la sección: <ZonaGasto> devuelve a este bloque el
+ * nivel «editar» (sus hooks envían); el servidor lo comprueba con «ver».
+ */
+export default function LockedTalentCard(props: Parameters<typeof TarjetaBloqueada>[0]) {
+  return (
+    <ZonaGasto>
+      <TarjetaBloqueada {...props} />
+    </ZonaGasto>
   );
 }

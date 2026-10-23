@@ -1,12 +1,13 @@
 // Perfil laboral del alumno (datos estilo CRM de formación bonificada).
 // Fuente ÚNICA de las listas cerradas, la whitelist de campos, los validadores
 // y los formateadores. Importable desde server actions y componentes cliente
-// (sin "use server", patrón de app/(app)/perfil/externo/certif-kinds.ts).
+// (sin "use server", patrón de lib/competencias.ts).
 //
-// REGLA DE ORO (se aplica en servidor, en app/(app)/perfil/datos/actions.ts):
-// un campo con valor queda BLOQUEADO para el alumno; solo puede completar los
-// vacíos. Cambiar un campo bloqueado exige una ProfileChangeRequest aprobada
-// por administración. El bloqueo se deriva del valor (isLaborFieldFilled).
+// LOTE01 (AL2): se acabó la «regla de oro» de G04 (campo con valor =
+// bloqueado). El alumno edita y guarda su ficha al momento, todo o nada
+// (lib/ficha-laboral-server.ts). La única excepción es el DNI/NIE ya guardado,
+// que con CAMBIO_DNI_DIRECTO = false (lib/config-ficha.ts) solo cambia por una
+// ProfileChangeRequest que valida el superadministrador.
 
 // ---------------------------------------------------------------------------
 // Listas cerradas (los códigos se guardan en BD; las etiquetas son de display)
@@ -96,15 +97,138 @@ export function cotizationGroupDisplay(code: CotizationGroup): string {
   return `${code} - ${COTIZATION_GROUP_LABELS[code]}`;
 }
 
-/** Turnos de trabajo. Códigos ASCII; la etiqueta lleva la eñe. */
-export const WORK_SHIFTS = ["MANANA", "TARDE", "NOCHE"] as const;
+// ---------------------------------------------------------------------------
+// LOTE01 (AL5): situación actual y respuestas para quien no trabaja
+// ---------------------------------------------------------------------------
+
+/** «Situación actual», primer campo de la ficha laboral (AL5). */
+export const SITUACIONES_LABORALES = [
+  "TRABAJANDO",
+  "ESTUDIANDO",
+  "ESTUDIANDO_Y_TRABAJANDO",
+  "BUSCANDO_EMPLEO",
+  "OTRA",
+] as const;
+export type SituacionLaboral = (typeof SITUACIONES_LABORALES)[number];
+
+// LOTE02 (AL1): los textos de la pregunta «¿Cuál es tu situación?» del registro
+// (es el mismo dato que la «Situación actual» del LOTE01 AL5).
+export const SITUACION_LABORAL_LABELS: Record<SituacionLaboral, string> = {
+  TRABAJANDO: "Trabajo",
+  ESTUDIANDO: "Solo estudio",
+  ESTUDIANDO_Y_TRABAJANDO: "Estudio y trabajo",
+  BUSCANDO_EMPLEO: "Busco empleo",
+  OTRA: "Otra situación",
+};
+
+/**
+ * Situaciones en las que la persona NO trabaja: centro, cargo, turno y
+ * servicios se rellenan solos con «No trabajo actualmente» o «Nunca he
+ * trabajado» y se bloquean (AL5).
+ */
+export const SITUACIONES_SIN_TRABAJO: readonly SituacionLaboral[] = ["ESTUDIANDO", "BUSCANDO_EMPLEO"];
+
+/** Situaciones en las que la persona SÍ trabaja: no valen las respuestas de no trabajo. */
+export const SITUACIONES_CON_TRABAJO: readonly SituacionLaboral[] = ["TRABAJANDO", "ESTUDIANDO_Y_TRABAJANDO"];
+
+export function situacionSinTrabajo(s: string | null | undefined): boolean {
+  return (SITUACIONES_SIN_TRABAJO as readonly string[]).includes(s ?? "");
+}
+
+export function situacionConTrabajo(s: string | null | undefined): boolean {
+  return (SITUACIONES_CON_TRABAJO as readonly string[]).includes(s ?? "");
+}
+
+/** Respuestas de no trabajo, comunes a centro, cargo, turno y servicios (AL5). */
+export const SIN_TRABAJO = ["NO_TRABAJA", "NUNCA_TRABAJO"] as const;
+export type SinTrabajo = (typeof SIN_TRABAJO)[number];
+
+export const SIN_TRABAJO_LABELS: Record<SinTrabajo, string> = {
+  NO_TRABAJA: "No trabajo actualmente",
+  NUNCA_TRABAJO: "Nunca he trabajado",
+};
+
+export function esSinTrabajo(v: string | null | undefined): v is SinTrabajo {
+  return (SIN_TRABAJO as readonly string[]).includes(v ?? "");
+}
+
+/** Opciones fijas del cargo: las dos de no trabajo y «Estudiante · sin cargo». */
+export const CARGO_OPCIONES = ["NO_TRABAJA", "NUNCA_TRABAJO", "ESTUDIANTE"] as const;
+export type CargoOpcion = (typeof CARGO_OPCIONES)[number];
+
+export const CARGO_OPCION_LABELS: Record<CargoOpcion, string> = {
+  ...SIN_TRABAJO_LABELS,
+  ESTUDIANTE: "Estudiante · sin cargo",
+};
+
+/** Turnos de trabajo (AL5). Códigos ASCII; la etiqueta lleva la eñe. Los tres
+ *  primeros son los de siempre (importaciones y fichas antiguas siguen valiendo). */
+export const WORK_SHIFTS = [
+  "MANANA",
+  "TARDE",
+  "NOCHE",
+  "PARTIDA",
+  "ROTATIVO",
+  "OTRO",
+  "NO_TRABAJA",
+  "NUNCA_TRABAJO",
+] as const;
 export type WorkShift = (typeof WORK_SHIFTS)[number];
 
 export const WORK_SHIFT_LABELS: Record<WorkShift, string> = {
   MANANA: "Mañana",
   TARDE: "Tarde",
   NOCHE: "Noche",
+  PARTIDA: "Jornada partida",
+  ROTATIVO: "Rotativo",
+  OTRO: "Otro",
+  ...SIN_TRABAJO_LABELS,
 };
+
+// ---------------------------------------------------------------------------
+// LOTE01 (AL6): edad mínima por nivel de estudios
+// ---------------------------------------------------------------------------
+
+/**
+ * Edad mínima (años cumplidos) con la que se puede tener cada nivel de
+ * estudios terminado. Un único sitio: lo usan el desplegable (con la fecha de
+ * nacimiento ya puesta) y el servidor. Referencia: la ESO se termina con 16, el
+ * bachillerato y la FP de grado medio con 17-18, la FP superior con 19-20, un
+ * grado con 21-22, un máster con 22-23 y un doctorado con 25 o más. Los topes
+ * son los más bajos posibles, para no cerrar el paso a casos reales.
+ */
+export const EDAD_MINIMA_POR_NIVEL: Record<EducationLevel, number> = {
+  "menos-primaria": 0,
+  primaria: 12,
+  "secundaria-1": 16,
+  "secundaria-2": 17,
+  postsecundaria: 18,
+  "tecnico-superior": 19,
+  "uni-1": 20,
+  "uni-2": 21,
+  "uni-3": 23,
+  otras: 0,
+};
+
+/** Años cumplidos el día `hoyIso` por quien nació el día `nacimientoIso` (AAAA-MM-DD). null si falta alguna. */
+export function edadCumplida(nacimientoIso: string | null | undefined, hoyIso: string): number | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(nacimientoIso ?? "");
+  const h = /^(\d{4})-(\d{2})-(\d{2})/.exec(hoyIso);
+  if (!m || !h) return null;
+  let edad = Number(h[1]) - Number(m[1]);
+  if (`${h[2]}-${h[3]}` < `${m[2]}-${m[3]}`) edad -= 1;
+  return edad;
+}
+
+/** ¿Se puede tener ese nivel con esa edad? Sin edad (fecha sin poner), todos valen. */
+export function nivelPosibleConEdad(nivel: string, edad: number | null): boolean {
+  if (edad === null) return true;
+  const min = EDAD_MINIMA_POR_NIVEL[nivel as EducationLevel];
+  return min === undefined ? true : edad >= min;
+}
+
+export const MSG_NIVEL_EDAD =
+  "Ese nivel de estudios no encaja con tu fecha de nacimiento. Revisa la fecha o elige otro nivel.";
 
 // ---------------------------------------------------------------------------
 // Whitelist canónica de campos laborales
@@ -125,28 +249,45 @@ export const LABOR_FIELDS = [
 export type LaborField = (typeof LABOR_FIELDS)[number];
 
 /**
- * Campos que el ALUMNO ve en su ficha laboral. La categoría profesional, el
- * grupo de cotización y el coste por hora se quedan fuera de su presentación
- * por decisión de producto: son datos de gestión que maneja la administración.
- * Siguen existiendo en base de datos y en el panel de administración, que usa
- * LABOR_FIELDS completo, así que las solicitudes de cambio ya registradas sobre
- * esos campos se siguen resolviendo con normalidad.
+ * Campos de GESTIÓN: solo los ve y los edita administración. El alumno no los
+ * ve en su ficha, no puede rellenarlos ni pedir cambios sobre ellos.
+ *
+ * DECISIÓN DE PRODUCTO CERRADA (G04, 29 sep 2026): el guion de validación
+ * antiguo decía que el alumno veía el grupo de cotización y el coste por hora;
+ * se da por buena la versión actual, que los oculta. Si alguien quiere volver a
+ * exponerlos tiene que cambiar esta lista a propósito: lib/labor.test.ts falla
+ * si la pantalla del alumno vuelve a usarlos.
+ */
+export const LABOR_FIELDS_MANAGEMENT = [
+  "professionalCategory",
+  "cotizationGroup",
+  "costPerHourCents",
+] as const satisfies readonly LaborField[];
+
+/**
+ * Campos que el ALUMNO ve en su ficha laboral: todos menos los de gestión.
+ * Es la lista que usan la pantalla /perfil/datos Y sus acciones de servidor
+ * (guardar y solicitar cambio), para que un formulario manipulado tampoco
+ * pueda tocar los de gestión. El panel de administración usa LABOR_FIELDS
+ * completo, así que las solicitudes antiguas sobre esos campos se siguen
+ * resolviendo con normalidad.
  */
 export const LABOR_FIELDS_STUDENT = LABOR_FIELDS.filter(
-  (f) => f !== "professionalCategory" && f !== "cotizationGroup" && f !== "costPerHourCents",
+  (f) => !(LABOR_FIELDS_MANAGEMENT as readonly string[]).includes(f),
 ) as readonly LaborField[];
 
 export const LABOR_FIELD_LABELS: Record<LaborField, string> = {
-  dni: "DNI/NIF",
-  phone: "Móvil",
+  dni: "DNI/NIE",
+  phone: "Teléfono",
   birthDate: "Fecha de nacimiento",
   educationLevel: "Nivel de estudios",
   professionalCategory: "Categoría profesional",
   cotizationGroup: "Grupo de cotización",
-  ssAccount: "Cuenta de la Seguridad Social",
+  ssAccount: "Nº de la Seguridad Social (NAF)",
   costPerHourCents: "Coste por hora",
-  workShift: "Turno",
-  estancia: "Estancia o centro de trabajo",
+  workShift: "Turno de trabajo",
+  // LOTE02 (AL8): «Empresa o centro de trabajo».
+  estancia: "Empresa o centro de trabajo",
 };
 
 /** Subconjunto del perfil con los campos laborales (shape de Prisma). */
@@ -208,6 +349,78 @@ export function normalizeDniNie(value: string): string {
   return value.trim().toUpperCase().replace(/[\s.-]/g, "");
 }
 
+/** Mensaje de un CIF/NIF que no pasa isValidNifCif (ficha de empresa, G08a). */
+export const MSG_CIF_NO_VALIDO = "El CIF no es válido. Revisa que la letra y el dígito de control sean correctos.";
+
+// Primera letra del CIF de una persona jurídica. A, B, E y H llevan dígito de
+// control; P, Q, R, S, N y W, letra; el resto, cualquiera de los dos.
+const CIF_LETRA_INICIAL = "ABCDEFGHJNPQRSUVW";
+const CIF_CONTROL_LETRAS = "JABCDEFGHI";
+
+function cifValido(v: string): boolean {
+  const m = v.match(/^([ABCDEFGHJNPQRSUVW])(\d{7})([0-9A-J])$/);
+  if (!m || !CIF_LETRA_INICIAL.includes(m[1])) return false;
+  const digitos = m[2];
+  let suma = 0;
+  for (let i = 0; i < 7; i++) {
+    const n = Number(digitos[i]);
+    if (i % 2 === 0) {
+      // Posiciones impares (1.ª, 3.ª, 5.ª y 7.ª): se dobla y se suman sus cifras.
+      const doble = n * 2;
+      suma += Math.floor(doble / 10) + (doble % 10);
+    } else {
+      suma += n;
+    }
+  }
+  const control = (10 - (suma % 10)) % 10;
+  const digito = String(control);
+  const letra = CIF_CONTROL_LETRAS[control];
+  const dado = m[3];
+  if ("PQRSNW".includes(m[1])) return dado === letra;
+  if ("ABEH".includes(m[1])) return dado === digito;
+  return dado === digito || dado === letra;
+}
+
+/**
+ * NIF español de una empresa o de un autónomo, con su control: CIF de persona
+ * jurídica (letra, 7 dígitos y dígito o letra de control), DNI, NIE o NIF
+ * especial K, L y M (letra, 7 dígitos y letra como la del DNI). Admite
+ * espacios, puntos y guiones, que normalizeNifCif quita.
+ */
+export function isValidNifCif(value: string): boolean {
+  const v = normalizeNifCif(value);
+  if (isValidDniNie(v)) return true;
+  const klm = v.match(/^([KLM])(\d{7})([A-Z])$/);
+  if (klm) return DNI_LETTERS[Number(klm[2]) % 23] === klm[3];
+  return cifValido(v);
+}
+
+/** CIF/NIF tal y como se guarda: mayúsculas, sin espacios, puntos ni guiones. */
+export function normalizeNifCif(value: string): string {
+  return value.trim().toUpperCase().replace(/[\s.-]/g, "");
+}
+
+/**
+ * CIF que se guarda al editar una ficha (empresa o entidad). Solo se comprueba
+ * con su letra o dígito de control si CAMBIA respecto al guardado: un valor
+ * antiguo que no pase el control (importado o de antes de la regla) no impide
+ * guardar el resto de la ficha (revisión de G08a, M3). Vacío: null. Con
+ * `validar` false (empresa extranjera) se guarda tal cual, sin normalizar.
+ */
+export function cifAGuardar(
+  nuevo: string | null | undefined,
+  guardado: string | null | undefined,
+  { validar = true }: { validar?: boolean } = {},
+): { ok: true; cif: string | null } | { ok: false; error: string } {
+  const texto = (nuevo ?? "").trim();
+  if (!texto) return { ok: true, cif: null };
+  if (!validar) return { ok: true, cif: texto };
+  const cif = normalizeNifCif(texto);
+  const antes = guardado ? normalizeNifCif(guardado) : null;
+  if (cif === antes) return { ok: true, cif: guardado ?? cif };
+  return isValidNifCif(cif) ? { ok: true, cif } : { ok: false, error: MSG_CIF_NO_VALIDO };
+}
+
 /** Deja solo dígitos (quita espacios, puntos, guiones y el prefijo +34). */
 export function normalizePhone(value: string): string {
   let v = value.replace(/[\s.\-()]/g, "");
@@ -220,13 +433,55 @@ export function isValidSpanishMobile(value: string): boolean {
   return /^[67]\d{8}$/.test(value);
 }
 
-/** Cuenta de cotización SS: 11 dígitos (tolera separadores al teclear). */
-export function normalizeSsAccount(value: string): string {
-  return value.replace(/\D/g, "");
+/**
+ * Revisión de G10a (A1): el teléfono del trabajador es móvil o fijo español,
+ * 9 cifras que empiezan por 6, 7, 8 o 9 (ya normalizado con normalizePhone:
+ * sin +34 ni separadores). Lo usan la ficha laboral, administración, las
+ * solicitudes de cambio y la carga por fichero.
+ */
+export function isValidSpanishPhone(value: string): boolean {
+  return /^[6789]\d{8}$/.test(value);
 }
 
+export const MSG_TELEFONO_NO_VALIDO = "El teléfono no es válido: tienen que ser 9 cifras empezando por 6, 7, 8 o 9.";
+
+/**
+ * Nº de la Seguridad Social del trabajador: el NÚMERO DE AFILIACIÓN (NAF), 12
+ * cifras = provincia (2) + número (8) + control (2). (Hasta el arreglo de G04
+ * del 1 oct 2026 este campo pedía la cuenta de cotización de 11 cifras.)
+ *
+ * Control: si el número de 8 cifras es menor que 10.000.000, d = número +
+ * provincia × 10.000.000; si no, d = la cifra de «provincia» seguida de
+ * «número». control = d mod 97, con dos cifras.
+ */
+export const MSG_SS_NO_VALIDO = "El número de la Seguridad Social no es válido: son 12 cifras (provincia, número y control)";
+
+/** Las dos cifras de control de un NAF a partir de su provincia (2) y su número (8). */
+export function controlNaf(provincia: string, numero: string): string {
+  const n = Number(numero);
+  const d = n < 10_000_000 ? n + Number(provincia) * 10_000_000 : Number(`${provincia}${numero}`);
+  return String(d % 97).padStart(2, "0");
+}
+
+function nafCuadra(doce: string): boolean {
+  return /^\d{12}$/.test(doce) && controlNaf(doce.slice(0, 2), doce.slice(2, 10)) === doce.slice(10);
+}
+
+/**
+ * Normaliza el NAF: solo cifras (tolera espacios, barras, puntos y guiones al
+ * teclear o en un fichero). Con 11 cifras, si completado con un 0 a la
+ * izquierda pasa el control, se completa: una provincia 01-09 escrita sin el
+ * cero o una celda numérica de Excel que lo perdió. Se guarda con 12.
+ */
+export function normalizeSsAccount(value: string): string {
+  const d = value.replace(/\D/g, "");
+  if (d.length === 11 && nafCuadra(`0${d}`)) return `0${d}`;
+  return d;
+}
+
+/** NAF válido: 12 cifras con su control (acepta lo que normalizeSsAccount completa). */
 export function isValidSsAccount(value: string): boolean {
-  return /^\d{11}$/.test(value);
+  return nafCuadra(normalizeSsAccount(value));
 }
 
 /** "10,33" | "10.33" | "10,33 €" → céntimos (1033). null si no es un importe. */
@@ -240,6 +495,16 @@ export function formatCents(cents: number): string {
   const euros = Math.floor(cents / 100);
   const dec = String(cents % 100).padStart(2, "0");
   return `${euros},${dec} €`;
+}
+
+/**
+ * LOTE03 (L3-06): céntimos → cómo se escribe en un campo («12,00», sin «€»).
+ * Es la forma canónica del coste por hora en el autoguardado: la usan el
+ * servidor (lo que confirma) y el navegador (para comparar), así «12» y
+ * «12,00» son lo mismo y no se reenvía en bucle.
+ */
+export function formatCentsEntrada(cents: number): string {
+  return formatCents(cents).replace(/\s*€$/, "");
 }
 
 // ---------------------------------------------------------------------------
@@ -287,12 +552,15 @@ export function parseSerializedLaborValue(
       return isValidDniNie(v) ? normalizeDniNie(v) : null;
     case "phone": {
       const p = normalizePhone(v);
-      return isValidSpanishMobile(p) ? p : null;
+      return isValidSpanishPhone(p) ? p : null;
     }
     case "birthDate": {
       if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) return null;
       const d = new Date(`${v}T00:00:00.000Z`);
-      return Number.isNaN(d.getTime()) ? null : d;
+      // Mismo criterio que el formulario: V8 desliza los días imposibles
+      // ("2000-02-30" pasa a 1 de marzo); el round-trip lo detecta.
+      if (Number.isNaN(d.getTime()) || d.toISOString().slice(0, 10) !== v) return null;
+      return d;
     }
     case "educationLevel":
       return (EDUCATION_LEVELS as readonly string[]).includes(v) ? v : null;
@@ -352,17 +620,33 @@ export function formatLaborValueFromString(field: LaborField, raw: string): stri
   return formatLaborValue(field, value as LaborProfile[LaborField]);
 }
 
-/** Campos cuyo valor NO debe viajar en claro a la auditoría (minimización). */
-const MASKED_FIELDS: ReadonlySet<LaborField> = new Set(["dni", "phone", "ssAccount"]);
+/**
+ * Datos personales sensibles: NUNCA en claro en la auditoría, en los logs ni
+ * en listados donde no hagan falta (minimización). Documento, móvil, cuenta de
+ * la Seguridad Social y fecha de nacimiento.
+ */
+export const LABOR_SENSITIVE_FIELDS = ["dni", "phone", "ssAccount", "birthDate"] as const satisfies readonly LaborField[];
+const MASKED_FIELDS: ReadonlySet<LaborField> = new Set(LABOR_SENSITIVE_FIELDS);
+
+export function isSensitiveLaborField(field: LaborField): boolean {
+  return MASKED_FIELDS.has(field);
+}
 
 /**
- * Valor para el resumen de AuditLog: los identificadores personales se
- * enmascaran a sus 3 últimos caracteres ("···448T"); el resto va legible.
+ * Enmascara un valor ya formateado si el campo es sensible: quedan sus 3
+ * últimos caracteres ("···448T", "···990"). El resto de campos va legible.
+ * Sirve para la auditoría y para el historial de solicitudes del alumno.
  */
-export function auditLaborValue(field: LaborField, display: string): string {
-  if (!display) return "vacío";
+export function maskLaborValue(field: LaborField, display: string): string {
+  if (!display) return "";
   if (!MASKED_FIELDS.has(field)) return display;
   return display.length <= 3 ? "···" : `···${display.slice(-3)}`;
+}
+
+/** Valor para el resumen de AuditLog: enmascarado si es sensible, «vacío» si no hay. */
+export function auditLaborValue(field: LaborField, display: string): string {
+  if (!display) return "vacío";
+  return maskLaborValue(field, display);
 }
 
 export const CHANGE_REQUEST_STATES = ["PENDING", "APPROVED", "REJECTED", "CANCELLED"] as const;

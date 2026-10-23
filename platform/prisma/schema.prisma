@@ -43,6 +43,15 @@ model User {
   // abiertas con la versión anterior dejan de valer. Nace en 0 y los tokens
   // emitidos antes de existir la columna se tratan como 0.
   sessionVersion Int       @default(0)
+  // G13 seguridad S2 (M5): cuenta bloqueada por administración. No entra (mismo
+  // mensaje que una contraseña incorrecta) y su sesión abierta cae en la
+  // siguiente petición (auth.ts lo comprueba al revalidar). La supresión de
+  // datos personales también la deja bloqueada.
+  blockedAt     DateTime?
+  blockedReason String?
+
+  // LOTE03 (L3-19): aviso por correo de mensajes nuevos de Meet and Greet (lo cambia la cuenta).
+  avisosMeetCorreo Boolean @default(true)
 
   // Perfiles especializados (solo uno se rellena según role)
   student StudentProfile?
@@ -52,6 +61,10 @@ model User {
 
   // Membresías en plataformas internas de empresas (multi-tenant white-label)
   platformMemberships InternalPlatformMembership[]
+
+  // G08b: entidades formativas en cuyo nombre opera esta cuenta sin ser su
+  // titular (EntityMember.userId). Como mucho una ACTIVE: lo comprueba el servidor.
+  entityMemberships EntityMember[]
 
   // Aplicaciones a ofertas (lado alumno)
   applications Application[]
@@ -89,23 +102,45 @@ model StudentProfile {
   softSkills   String  @default("[]") // JSON: string[]
   competencies String  @default("[]") // JSON: [{name, level, validatedByEcoe}]
   sectors      String  @default("[]") // JSON: string[] de lib/sectors SECTORS (legacy, ronda 2)
-  servicios    String  @default("[]") // JSON: string[] de lib/servicios SERVICIOS (ronda 6)
+  // JSON: string[] de lib/servicios SERVICIOS (ronda 6). Desde LOTE01 (AL9) se
+  // DERIVA de serviciosTrabajo al guardar la ficha laboral (serviciosBaseDe):
+  // recomendaciones y filtros la siguen leyendo igual.
+  servicios    String  @default("[]")
+  // LOTE01 (AL9): «Servicios en los que has trabajado (los 4 últimos)», claves
+  // de lib/servicios-trabajo.ts en orden (más reciente primero), o una de las
+  // dos respuestas de no trabajo.
+  serviciosTrabajo String @default("[]")
 
   // Perfil laboral (datos estilo CRM, listas cerradas en lib/labor.ts).
-  // REGLA: campo con valor = bloqueado para el alumno (solo completa vacíos);
-  // cambiar un campo bloqueado exige solicitud aprobada por administración
-  // (ProfileChangeRequest). El bloqueo se DERIVA del valor, sin flag aparte.
-  dni                  String? // DNI/NIF o NIE, normalizado en mayúsculas
+  // LOTE01 (AL2): el alumno edita y guarda su ficha al momento, todo o nada
+  // (lib/ficha-laboral-server.ts). Única excepción: el DNI/NIE ya guardado, que
+  // con CAMBIO_DNI_DIRECTO = false (lib/config-ficha.ts) solo cambia por una
+  // solicitud (ProfileChangeRequest) que valida el superadministrador.
+  // dni y ssAccount van CIFRADOS (lib/cifrado-datos.ts, `enc:v1:…`; las filas
+  // antiguas en claro se leen igual). Para buscar o comparar, su índice ciego:
+  // dniHash / nafHash (HMAC del valor normalizado).
+  situacionLaboral     String? // LOTE01 (AL5): SITUACIONES_LABORALES de lib/labor.ts
+  cargoOpcion          String? // LOTE01 (AL5): NO_TRABAJA | NUNCA_TRABAJO | ESTUDIANTE (headline vacío)
+  estanciaOpcion       String? // LOTE01 (AL5): NO_TRABAJA | NUNCA_TRABAJO (estancia vacía)
+  sinNaf               Boolean @default(false) // LOTE01 (AL5): «Aún no tengo número de la Seguridad Social»
+  dni                  String? // DNI/NIF o NIE, normalizado en mayúsculas (cifrado)
+  dniHash              String?
+  nafHash              String?
   phone                String? // móvil ES normalizado (9 dígitos)
   birthDate            DateTime?
   educationLevel       String? // código de EDUCATION_LEVELS
   professionalCategory String? // código de PROFESSIONAL_CATEGORIES
   cotizationGroup      String? // "1".."11" (COTIZATION_GROUPS)
-  ssAccount            String? // cuenta de cotización SS (11 dígitos)
+  ssAccount            String? // nº de la Seguridad Social del trabajador (NAF): 12 cifras con control (lib/labor.ts); hasta el 1 oct 2026, cuenta de cotización de 11
   costPerHourCents     Int? // coste/hora en céntimos (criterio fundaeCreditCents)
-  workShift            String? // MANANA | TARDE | NOCHE (WORK_SHIFTS)
+  workShift            String? // WORK_SHIFTS: MANANA | TARDE | NOCHE | PARTIDA | ROTATIVO | OTRO | NO_TRABAJA | NUNCA_TRABAJO
   estancia             String? // nombre del centro o residencia donde trabaja
   workCenterId         String? // WorkCenter.id cuando el centro está en el catálogo (sin FK)
+  // Centro que el alumno tenía puesto y administración RECHAZÓ (G04 H3): al
+  // rechazarlo se vacían estancia y workCenterId para que pueda elegir otro, y
+  // aquí queda la referencia para enseñarle el aviso con el motivo. Se limpia
+  // en cuanto vuelve a tener centro. Sin FK.
+  rejectedWorkCenterId String?
 
   // Currículum externo: CV y certificados que el alumno aporta de fuera de la red
   externalCvUrl      String?
@@ -120,10 +155,40 @@ model StudentProfile {
   // Búsqueda de talento de empresas (OPT-OUT: por defecto visible; puede ocultarse).
   hideFromTalentSearch Boolean @default(false)
 
+  // LOTE02 (AL8, E5, E6): empresa en la que dice trabajar (CompanyProfile.userId,
+  // sin FK). El estado del vínculo ES su fila de MiembroPlantilla con esa empresa.
+  empresaTrabajoId      String?
+  // LOTE02 (AL1): sección laboral activa. null = sin respuesta (se deriva de
+  // situacionLaboral, lib/ficha-laboral-vigente.ts). Ocultarla no borra datos.
+  seccionLaboralActiva  Boolean?
+  // LOTE02 (AL1): cuándo se le hizo la pregunta única a un alumno que ya existía.
+  situacionPreguntadaAt DateTime?
+  // LOTE02 (G1): versión de la fila; el autoguardado la compara y la sube.
+  version               Int       @default(0)
+  // LOTE03 (L3-05): clave del puesto del titular y de la ficha propia: la de
+  // lib/puestos-catalogo.ts o "propuesto:<PuestoPropuesto.id>"; null = texto sin emparejar.
+  // LOTE03 (decisión 3): desde el lote, empresaTrabajoId es la «empresa principal»
+  // (no da permisos) y los datos de cada empresa viven en VinculoLaboral.
+  puestoClave           String?
+  // LOTE05 (L5-18): perfil profesional (clave de PERFILES_PROFESIONALES de
+  // lib/cursos-destinatarios.ts). null = aún sin elegir. CHECK de formato en la base.
+  perfilProfesional     String?
+
   enrollments     CourseEnrollment[]
   ecoeResults     EcoeResult[]
   acatEvaluations AcatEvaluation[]
   eropEvaluations EropEvaluation[]
+  // LOTE06 (L6-04): ECHO y EVOP, como ACAT y EROP. Las marcas share*WithCompanies
+  // de arriba quedan sin uso: lo que ven las organizaciones lo decide visibleEnCv
+  // de cada evaluación (lib/evaluaciones/cv-server.ts).
+  echoEvaluations EchoEvaluation[]
+  evopEvaluations EvopEvaluation[]
+  // LOTE02 (AL2): competencias guiadas por tipo.
+  competenciasAlumno CompetenciaAlumno[]
+
+  @@index([dniHash])
+  @@index([nafHash])
+  @@index([empresaTrabajoId])
 }
 
 // Resultado ECOE externo subido por el alumno (con PDF/docx/xlsx adjunto
@@ -167,6 +232,14 @@ model AcatEvaluation {
   // Pago (opcional, futuro)
   paidWith          String?
   paidTransactionId String? @unique
+
+  // LOTE06 (L6-03, L6-06): el desbloqueo que consumió (DesbloqueoEvaluacion.id,
+  // sin FK), el código del sello «Validada en Reconnect.iA» («RIA-ACAT-XXXX-XXXX»,
+  // lib/evaluaciones/codigo.ts; CHECK en la base) y si sale en su CV. Las filas
+  // nuevas siempre los llevan; una de antes (sin código) no sale en el CV.
+  desbloqueoId       String? @unique
+  codigoVerificacion String? @unique
+  visibleEnCv        Boolean @default(true)
 }
 
 // Una evaluación EROP (instrumento proyectivo: Persona Bajo la Lluvia + Wartegg).
@@ -192,12 +265,77 @@ model EropEvaluation {
   // Pago (opcional, futuro)
   paidWith          String?
   paidTransactionId String? @unique
+
+  // LOTE06 (L6-03, L6-06): como en AcatEvaluation («RIA-EROP-XXXX-XXXX»). Las
+  // organizaciones nunca ven las reflexiones escritas (cv-server).
+  desbloqueoId       String? @unique
+  codigoVerificacion String? @unique
+  visibleEnCv        Boolean @default(true)
+}
+
+// =============================================================
+// LOTE06 (L6-04) · ECHO (cognitiva) y EVOP (vocacional)
+// =============================================================
+// Como ACAT: cuelgan del perfil del alumno (cascada), guardan lo que respondió
+// y lo que calculó el SERVIDOR (lib/echo, lib/evop), el consentimiento, el
+// desbloqueo que consumieron, su código de verificación y si salen en su CV.
+// CHECK en la base (código con su tipo, rangos y formatos).
+//   ECHO: respuestas = razonamiento [{item, elegida, ms}]; metricas = memoria,
+//   atención y velocidad tal como llegan del navegador (dentro de límites);
+//   resultado = salida de computeResults recalculada en el servidor.
+model EchoEvaluation {
+  id                 String         @id @default(cuid())
+  studentId          String
+  student            StudentProfile @relation(fields: [studentId], references: [userId], onDelete: Cascade)
+  evalDate           String // "YYYY-MM"
+  respuestas         String         @default("[]") // JSON
+  metricas           String         @default("{}") // JSON
+  resultado          String // JSON
+  ci                 Int
+  percentil          Int
+  clasificacion      String
+  consentVersion     String         @default("1.0")
+  consentAcceptedAt  DateTime
+  desbloqueoId       String         @unique // DesbloqueoEvaluacion.id, sin FK
+  codigoVerificacion String         @unique // «RIA-ECHO-XXXX-XXXX»
+  visibleEnCv        Boolean        @default(true)
+  createdAt          DateTime       @default(now())
+
+  @@index([studentId, createdAt])
+}
+
+//   EVOP: respuestas = 24 enteros de 1 a 5; resultado = brutos, porcentajes y
+//   orden; codigoHolland = 3 letras RIASEC; perfilPrincipal = la primera.
+model EvopEvaluation {
+  id                 String         @id @default(cuid())
+  studentId          String
+  student            StudentProfile @relation(fields: [studentId], references: [userId], onDelete: Cascade)
+  evalDate           String // "YYYY-MM"
+  respuestas         String         @default("[]") // JSON
+  resultado          String // JSON
+  codigoHolland      String
+  perfilPrincipal    String
+  consentVersion     String         @default("1.0")
+  consentAcceptedAt  DateTime
+  desbloqueoId       String         @unique // DesbloqueoEvaluacion.id, sin FK
+  codigoVerificacion String         @unique // «RIA-EVOP-XXXX-XXXX»
+  visibleEnCv        Boolean        @default(true)
+  createdAt          DateTime       @default(now())
+
+  @@index([studentId, createdAt])
 }
 
 model CompanyProfile {
   userId         String  @id
   user           User    @relation(fields: [userId], references: [id], onDelete: Cascade)
   legalName      String
+  // LOTE01 (E12): «Nombre de empresa», el que identifica a la empresa en toda la
+  // aplicación (nombreOrganizacion: commercialName ?? legalName). legalName es la razón social.
+  commercialName String?
+  // LOTE01 (E12): representante legal, opcional (decisión 4 del usuario).
+  legalRepName   String?
+  // LOTE01 (E12): persona de RRHH elegida de la plantilla aceptada (User.id; sin FK).
+  hrContactUserId String?
   slug           String  @unique
   sector         String? // legacy: sector primario en texto libre
   sectors        String  @default("[]") // JSON: string[] de SECTORS (legacy, lib/sectors.ts)
@@ -212,7 +350,11 @@ model CompanyProfile {
   website   String?
   linkedin  String?
   instagram String?
-  twitter   String?
+  twitter   String? // X (x.com)
+  // LOTE01 (E5, E13): más redes. Se guardan limpias (lib/redes-sociales.ts).
+  facebook  String?
+  tiktok    String?
+  youtube   String?
 
   city         String?
   region       String?
@@ -233,10 +375,32 @@ model CompanyProfile {
   trustedEntityIds String @default("[]") // JSON: string[] de EntityProfile.userId
 
   // Flags: verified = proveedor revisado/destacado; hasInternalPlatform = tiene panel embebido.
+  // LOTE02 (V1-V5): verified es la FUENTE DE VERDAD de «empresa validada».
   verified            Boolean @default(false)
   hasInternalPlatform Boolean @default(false)
+
+  // LOTE02 (V1-V5): subestado del alta mientras NO está validada
+  // (PENDIENTE_DOCUMENTACION | EN_REVISION | NECESITA_INFO | VALIDADA | RECHAZADA,
+  // CHECK en la base). Solo lo escribe cambiarEstadoAlta (lib/cuenta-alta-server.ts),
+  // que lo deja coherente con verified; estadoAltaDe() lo lee.
+  estadoAlta      String    @default("PENDIENTE_DOCUMENTACION")
+  validatedAt     DateTime?
+  validatedBy     String? // User.id del administrador, o "migracion"; sin FK
+  rejectedAt      DateTime?
+  rejectionReason String?
+  // LOTE02 (G1): versión de la fila; el autoguardado la compara y la sube.
+  version         Int       @default(0)
   panelUrl            String? // ej. "/proveedor/cesea-formacion/panel"
   internalSupabaseUid String? // auth.users.id en Supabase para el bridge SSO (CESEA)
+
+  // LOTE03 (L3-03): domicilio fiscal. Privado (solo la empresa y administración),
+  // editable y auditado; no entra en la ficha completa. CHECK en la base.
+  domicilioFiscal      String?
+  codigoPostalFiscal   String?
+  municipioFiscal      String?
+  provinciaFiscal      String? // provincia canónica de lib/geo
+  // LOTE03 (L3-09): sale en «Descubrir empresas» de las entidades formativas.
+  visibleParaEntidades Boolean @default(true)
 
   jobs Job[]
 
@@ -255,7 +419,24 @@ model EntityProfile {
   user           User    @relation(fields: [userId], references: [id], onDelete: Cascade)
   legalName      String
   type           String? // "preferred" para CeSeA Formación
+  // LEGADO: lista de textos de antes de G08b. Las acreditaciones viven ahora en
+  // EntityAccreditation (scripts/g08b-acreditaciones-entidad.mjs las pasa) y
+  // nadie lee ya esta columna; se conserva para no perder el dato.
   accreditations String  @default("[]") // JSON: string[]
+
+  // G08b H1: ficha que edita la propia entidad (/portal/ficha) o administración.
+  // Todo opcional: las entidades anteriores la completan cuando quieran.
+  commercialName String? // nombre comercial, el que ve la empresa en su plan formativo
+  cif            String? // CIF/NIF normalizado, validado con isValidNifCif (lib/labor.ts)
+  province       String? // provincia (lib/geo), la usan la afinidad y la cercanía
+  municipality   String?
+  description    String?
+  website        String?
+  phone          String?
+  email          String? // correo de contacto, no el de acceso
+  logo           String? // URL /api/uploads/logo/<fichero>
+
+  accreditationList EntityAccreditation[]
 
   // Una misma organización puede tener perfil de ENTIDAD y de EMPRESA a la vez.
   // CESEA es el caso: como empresa publica su catálogo (CompanyCourse, con sus
@@ -279,8 +460,37 @@ model EntityProfile {
   rejectedAt      DateTime?
   rejectionReason String?
 
+  // LOTE01 (E6, E8, E15): entidad de prueba. No sale en el catálogo de cursos
+  // (ni sus cursos), ni en el plan formativo, ni en el buscador de entidades
+  // del formador. Solo la marca scripts/lote01-datos-prueba.mjs (nunca borra).
+  esPrueba Boolean @default(false)
+
+  // LOTE02 (V1-V5): subestado del alta mientras NO está validada (validatedAt
+  // sigue siendo la fuente de verdad). Lo escribe solo cambiarEstadoAlta.
+  estadoAlta String  @default("PENDIENTE_DOCUMENTACION")
+  // LOTE02 (E8, E9, E13): perfil público /entidades/<slug> (el anterior queda
+  // en SlugAnterior), banner, redes y servicios de la ficha.
+  slug       String? @unique
+  cover      String?
+  linkedin   String?
+  instagram  String?
+  twitter    String?
+  facebook   String?
+  tiktok     String?
+  youtube    String?
+  servicios  String  @default("[]") // JSON: string[] de lib/servicios SERVICIOS
+  // LOTE02 (G1): versión de la fila; el autoguardado la compara y la sube.
+  version    Int     @default(0)
+
+  // LOTE03 (L3-12): gratis y completa para todas las empresas (tope
+  // ENTIDADES_GRATIS_EMPRESA de lib/skp/costes.ts). Las dos a la vez o ninguna (CHECK).
+  gratisParaEmpresasAt  DateTime?
+  gratisParaEmpresasPor String? // User.id del administrador o "migracion"; sin FK
+
   courses     Course[]
   residencias Residencia[]
+  // G08a: formaciones que imparte esta entidad (Formacion.entityId).
+  formaciones Formacion[]
 
   @@index([linkedCompanyUserId])
 }
@@ -311,6 +521,15 @@ model TrainerProfile {
   shareWithCompanies Boolean  @default(false)
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
+  // LOTE02 (G1): versión de la fila; el autoguardado la compara y la sube.
+  version            Int      @default(0)
+  // LOTE05 (L5-15): sale en «Descubrir formadores» de las entidades (opt-out:
+  // por defecto, visible; el formador lo apaga en /formador/perfil).
+  visibleParaEntidades Boolean @default(true)
+  // LOTE07 (L7-02): profesiones del formador. JSON: string[] de claves de
+  // lib/puestos-catalogo.ts PUESTOS, de 0 a 3 (CHECK en la base); el mínimo de 1
+  // lo exige la app en el alta. Las de antes, «[]» (aviso en su panel).
+  profesiones          String  @default("[]")
 
   admin TrainerAdminData?
 }
@@ -331,7 +550,10 @@ model TrainerAdminData {
   userId  String         @id
   trainer TrainerProfile @relation(fields: [userId], references: [userId], onDelete: Cascade)
 
-  dni          String? // NIF/NIE personal (en el cuadro de CESEA viene como "CIF")
+  dni          String? // NIF/NIE personal (en el cuadro de CESEA viene como "CIF"); cifrado (lib/cifrado-datos.ts)
+  // LOTE01 (F1): huella ciega del DNI/NIE (huellaDni de lib/cifrado-datos.ts),
+  // para no dar de alta dos veces al mismo formador. Índice no único.
+  dniHash      String?
   birthDate    DateTime?
   phone        String?
   address      String?
@@ -344,13 +566,18 @@ model TrainerAdminData {
   // va en TrainerProfile.province, que es la que usa el cálculo de distancia.
   province     String?
   irpfPercent  Int? // retención aplicable, en puntos porcentuales
-  iban         String? // cuenta de abono
+  iban         String? // cuenta de abono; cifrado (lib/cifrado-datos.ts)
+  // Revisión de S2 (M4): nombre del formador conservado aquí al suprimir sus
+  // datos si tiene formaciones impartidas (obligaciones contables).
+  nombre       String?
   contractType String? // "Indefinido" | "Obra y servicio" | ...
 
   // Origen y fecha del cuadro del que salió esta ficha, para saber a qué
   // versión corresponde cuando llegue la siguiente.
   sourceFile String?
   updatedAt  DateTime @updatedAt
+
+  @@index([dniHash])
 }
 
 // =============================================================
@@ -425,40 +652,103 @@ model InternalPlatformMembership {
 // Cursos
 // -----------------------------
 // modality: ONLINE | IN_PERSON | HYBRID
-// status:   DRAFT | PUBLISHED | CLOSED
+// status:   DRAFT | PUBLISHED | CLOSED (legado, ver G07 más abajo)
+//
+// G07 · Curso de ENTIDAD = plantilla de catálogo: sin fecha, sin ciudad y sin
+// estado. Si existe y no está eliminado, está en el catálogo. Reglas y
+// escrituras en lib/cursos-entidad.ts (puro) y lib/cursos-entidad-server.ts.
+//   · status, city, location y startDate se conservan en el esquema, pero
+//     ninguna pantalla ni consulta de cursos de entidad los lee ni los escribe.
+//   · Borrado SUAVE: deletedAt no nulo = fuera de toda lista y catálogo. Las
+//     formaciones programadas con él siguen mostrando su nombre.
+//   · retiredByAdmin distingue la retirada de administración (con motivo en
+//     deletedReason, que ve la entidad) del borrado de la propia entidad.
 model Course {
   id                  String        @id @default(cuid())
-  // Código corto legible del catálogo ("CUR-0001"), correlativo global. El id es
-  // un cuid que no se puede dictar por teléfono; este sí. Nullable porque las
-  // filas anteriores a la ronda 6 se rellenan por backfill.
-  code                String?       @unique
+  // Código corto legible del catálogo ("CUR-0001"), correlativo POR ENTIDAD
+  // desde G07 (antes era global). El id es un cuid que no se puede dictar por
+  // teléfono; este sí. Nullable porque las filas antiguas se rellenan con
+  // scripts/g07-codigos-cursos.mjs. Único por entidad: @@unique de abajo.
+  code                String?
   entityId            String
   entity              EntityProfile @relation(fields: [entityId], references: [userId])
   title               String
   description         String
   hours               Int
-  modality            String // ONLINE | IN_PERSON | HYBRID
+  modality            String // IN_PERSON | AULA_VIRTUAL | ONLINE | HYBRID (lib/roles MODALITIES; LOTE03 L3-17)
+  // LOTE01 (E7): modalidades que admite (JSON string[] de MODALIDADES_CURSO).
+  // La principal es la primera y coincide con modality. Ficha, catálogo y plan
+  // formativo enseñan estas; «Solicitar formación» y «Nueva convocatoria» solo
+  // ofrecen estas (lo comprueba el servidor).
+  modalidades         String        @default("[]")
   location            String?
   sector              String? // legacy (ronda 2): sector único de lib/sectors SECTORS
   servicios           String        @default("[]") // JSON: string[] de lib/servicios SERVICIOS (ronda 6)
   city                String? // ciudad/provincia, para la distancia en cursos presenciales
   price               Float?
   priceSkp            Int? // tarifa en SkillsPoints; si null, se calcula como Math.round(price * SKP_PER_EUR)
-  startDate           DateTime
-  capacity            Int
+  // Opcional desde G07: el curso de entidad es una plantilla sin fecha.
+  startDate           DateTime?
+  // Plazas ORIENTATIVAS, opcionales desde G07.
+  capacity            Int?
   bonifiable          Boolean       @default(false)
   competenciesAwarded String        @default("[]") // JSON: string[]
-  status              String        @default("PUBLISHED") // DRAFT | PUBLISHED | CLOSED
+  status              String        @default("PUBLISHED") // DRAFT | PUBLISHED | CLOSED (legado)
   createdAt           DateTime      @default(now())
+
+  // G07: programa del curso en PDF (tipo de subida «programa», privado, lo lee
+  // cualquier persona con sesión). URL /api/uploads/programa/<fichero>.
+  programPdfUrl  String?
+  // G07: borrado suave. deletedBy es un User.id (entidad o administrador) o
+  // "migracion"; sin FK, como el resto del modelo.
+  deletedAt      DateTime?
+  deletedBy      String?
+  // Motivo visible para la entidad: el de administración al retirar, o el de
+  // la migración de estados («Migración: estaba en borrador»).
+  deletedReason  String?
+  retiredByAdmin Boolean   @default(false)
 
   // Plantilla de catálogo de la que sale esta convocatoria, si viene de una.
   // Course es la CONVOCATORIA (tiene fecha y plazas reales); la plantilla con el
   // temario vive en CompanyCourse. Sin FK (additividad pura).
   companyCourseId String?
 
+  // LOTE02 (EN2, AL6): «Enlace del curso en tu plataforma» (https). Lo usa el
+  // botón «Ir al curso» del alumno por /api/cursos/<id>/ir.
+  enlaceExterno String?
+
+  // LOTE03 (L3-14): área formativa (clave de lib/areas-formativas.ts) y de dónde
+  // salió; categoría propia de la entidad (las 9 de CESEA). CHECK de formato en la base.
+  //   areaOrigen: ENTIDAD | PROPUESTA | CESEA
+  area            String?
+  areaOrigen      String?
+  categoriaPropia String?
+
+  // LOTE05 (L5-08, L5-10): un curso con varias modalidades es un GRUPO de
+  // cursos, uno por modalidad (modalidades = ["<su modality>"]). grupoId = id
+  // del raíz (el raíz, el suyo; null = curso de antes sin agrupar). Código =
+  // servicioNum (1..7, SERVICIO_NUM de lib/cursos-codigo.ts) + secuencia (por
+  // entidad y servicio) + «-sufijo» en los hermanos (sufijo 0 el raíz):
+  // «01002», «01002-1». El código no cambia al editar. codigoAnterior: el de
+  // antes de renumerar («CUR-0001»). CHECK e índices únicos PARCIALES en la base
+  // (una modalidad activa por grupo; un sufijo por grupo). LOTE06 (L6-10): una
+  // modalidad activa por grupo Y HORAS (Presencial 8 h y Presencial 10 h, sí).
+  grupoId        String?
+  servicioNum    Int?
+  secuencia      Int?
+  sufijo         Int     @default(0)
+  codigoAnterior String?
+  // LOTE05 (L5-09): a quién va dirigido. JSON: claves de lib/cursos-destinatarios.ts.
+  destinatarios  String  @default("[]")
+
   enrollments CourseEnrollment[]
 
+  @@unique([entityId, code])
   @@index([companyCourseId])
+  @@index([entityId, deletedAt])
+  @@index([entityId, area])
+  @@index([entityId, grupoId])
+  @@index([entityId, servicioNum, secuencia])
 }
 
 model CourseEnrollment {
@@ -485,13 +775,18 @@ model Job {
   title                String
   description          String
   location             String
-  contractType         String // indefinido | temporal | practicas
-  hoursPerWeek         Int
+  contractType         String // indefinido | temporal | practicas | autonomo (LOTE01, E1; etiquetas en lib/empresa/oferta-esquema.ts)
+  hoursPerWeek         Int // 0 = sin indicar (solo con contrato autonomo)
+  // LOTE01 (E1): «Duración o alcance del proyecto», opcional (contrato autonomo).
+  alcanceProyecto      String?
   requiredCompetencies String         @default("[]") // JSON: string[]
   contactEmail         String? // "Contactar a": recibe por email cada candidatura nueva
   mode                 String         @default("FREE") // FREE | PACK
   publishedAt          DateTime       @default(now())
   closedAt             DateTime?
+  // Seguridad S1 (H4): la cerró administración. La empresa no la puede
+  // reabrir; solo administración (que lo pone a false al reabrir).
+  closedByAdmin        Boolean        @default(false)
 
   // Monetización (modelo presupuesto). Aditivo: todo nullable/con default → las
   // ofertas existentes siguen igual (free, sin expiración).
@@ -501,6 +796,9 @@ model Job {
   isFeatured    Boolean   @default(false)
   featuredUntil DateTime?
   planCode      String? // snapshot del plan con el que se publicó
+  // G11: clave del formulario de publicar. Un doble clic con la misma clave
+  // choca con el índice único y no crea ni cobra dos ofertas.
+  publishKey    String?   @unique
 
   applications Application[]
   metrics      JobMetrics[]
@@ -625,6 +923,15 @@ model SkpTransaction {
   notes     String?
   createdAt DateTime @default(now())
 
+  // G11 H1: clave de la operación (la genera el formulario al abrirse). Un
+  // doble envío con la misma clave choca con el índice único y no mueve saldo
+  // dos veces. Null en los movimientos sin clave.
+  idempotencyKey String?
+  // G11 H1: movimiento de cargo que esta fila devuelve («Devolver un cargo»).
+  // Único: un cargo se devuelve una sola vez.
+  refundOfTxId   String? @unique
+
+  @@unique([walletId, idempotencyKey])
   @@index([walletId, createdAt])
 }
 
@@ -724,7 +1031,8 @@ model EvalRequest {
 }
 
 // Tarifa dual de productos pagables con Skp o €. Administrable, no hardcoded.
-// productKind: "EVAL_ECOE" | "EVAL_ACAT" | "EVAL_EROP".
+// productKind: evaluaciones "EVAL_ACAT" | "EVAL_EROP" | "EVAL_ECHO" | "EVAL_EVOP" | "EVAL_ECOE"
+// (LOTE06; ECOE sin uso) y desbloqueos "DESBLOQUEO_ENTIDAD" | "DESBLOQUEO_EMPRESA" | "DESBLOQUEO_FORMADOR".
 // Los cursos toman su precio en € de Course.price y en Skp de Course.priceSkp.
 model SkpPrice {
   id          String   @id @default(cuid())
@@ -1159,14 +1467,17 @@ model AuditLog {
   id         String   @id @default(cuid())
   actorId    String
   actorEmail String
-  action     String // p.ej. "user.role", "company.verify", "skp.price", "platform.update"
-  targetType String // "user" | "company" | "platform" | "course" | "job" | "price" | "announcement"
+  action     String // tipos en lib/admin/audit-actions.ts (AUDIT), p.ej. "user.role", "formacion.assign.entity"
+  targetType String // AUDIT_TARGETS de lib/admin/audit-actions.ts
   targetId   String?
-  summary    String // descripción legible del cambio
+  summary    String // descripción legible del cambio, con los datos sensibles enmascarados
   createdAt  DateTime @default(now())
 
   @@index([createdAt])
   @@index([action])
+  // G12: filtros de /admin/auditoria (por quién y por objeto, ordenados por fecha).
+  @@index([actorId, createdAt])
+  @@index([targetType, createdAt])
 }
 
 // Aviso/anuncio global publicado por el admin. Se muestra como banner en el
@@ -1232,7 +1543,13 @@ model Residencia {
 // BillingTransaction/AuditLog/CompanyCourseEnrollment. La única FK es
 // FormacionMatch → Formacion (ambas tablas nuevas → seguro).
 //   status:   DRAFT | PENDING_REVIEW | PUBLISHED | ASSIGNED | CLOSED
-//   modality: ONLINE | IN_PERSON | HYBRID (lib/roles MODALITIES)
+//             y, desde G08a, el circuito de la solicitud de una empresa
+//             (lib/solicitudes-formacion.ts): REQUESTED («Solicitada por la
+//             empresa») → REQUEST_REJECTED (la entidad la rechaza con motivo) |
+//             REQUEST_WITHDRAWN (la empresa la retira antes del presupuesto) |
+//             PUBLISHED (la empresa acepta el presupuesto). Una REQUESTED no la
+//             ve ningún formador.
+//   modality: IN_PERSON | AULA_VIRTUAL | ONLINE | HYBRID (lib/roles MODALITIES; LOTE03 L3-17)
 model Formacion {
   id                  String    @id @default(cuid())
   title               String
@@ -1264,6 +1581,8 @@ model Formacion {
   venueEquipment      String? // JSON: string[] con claves de lib/formacion-venue EQUIPMENT
   // Presupuesto que la ENTIDAD formativa envía a la empresa, que lo acepta o lo
   // rechaza. budgetState: SENT | ACCEPTED | REJECTED (null = sin presupuesto).
+  // G10b H4: el historial vive en FormacionPresupuesto; estos campos son la
+  // copia del VIGENTE (el último enviado), escrita en la misma transacción.
   budgetCents         Int?
   budgetState         String?
   budgetNote          String?
@@ -1281,20 +1600,74 @@ model Formacion {
   courseCodeHash      String?
   courseCodeHint      String? // últimos caracteres en claro, solo para que el admin lo identifique
   status              String    @default("DRAFT")
-  createdByUserId     String // User.id del autor (admin o formador); sin FK
-  createdByRole       String // "ADMIN" | "TRAINER"
+  createdByUserId     String // User.id del autor (admin, formador o empresa); sin FK
+  createdByRole       String // "ADMIN" | "TRAINER" | "COMPANY" (solicitud de empresa, G08a)
   assignedTrainerId   String? // User.id del formador asignado al confirmar; sin FK
+  // G07: curso de entidad (Course.id) del que sale esta formación, si sale de
+  // uno. Da «Formaciones programadas con este curso» y el aviso al eliminarlo.
+  // Sin FK: el curso se borra en suave y la formación conserva su propio título.
+  sourceCourseId      String?
+  // G08a: entidad formativa que imparte la formación (EntityProfile.userId).
+  // Se rellena al crear: la solicitud de la empresa lleva la entidad elegida y
+  // la propuesta del formador la del curso o la formación de la que parte. Las
+  // anteriores, con scripts/g08a-entidad-formaciones.mjs. G09b acota con ella
+  // la programación de cada entidad. Si la entidad se borra, queda en null.
+  entityId            String?
+  entity              EntityProfile? @relation(fields: [entityId], references: [userId], onDelete: SetNull)
+  // G08a H1: datos de la solicitud de la empresa. El nº aproximado de
+  // trabajadores va en capacity, la modalidad en modality y el lugar en city.
+  requestNote           String? // nota de la empresa (500)
+  requestPeriod         String? // fechas o periodo orientativo (120)
+  requestRejectedReason String? // motivo del rechazo de la entidad (5 a 300), lo ve la empresa
+  requestRespondedAt    DateTime? // cuándo dejó de estar pendiente: rechazo o retirada
+  // G09a H1: por qué está cerrada (status CLOSED): FINALIZADA (solo con formador)
+  // o CANCELADA. Null en las cerradas antes de G09a. CHECK en la base.
+  closeReason           String?
+  // G09b (decisión 24): la entidad pide a administración el código de curso
+  // («Pedir código a administración»). Cuándo y quién lo pidió (User.id de la
+  // persona, sin FK). Se limpian al fijar el código. Cuentan en «Pendiente de
+  // revisar» del panel de administración.
+  codeRequestedAt       DateTime?
+  codeRequestedBy       String?
+  // Revisión de G09a (M1 y B1): la PRIMERA vez que pasa a PUBLISHED, por
+  // cualquier vía. «Mis propuestas validadas» del formador son las suyas con
+  // esta fecha, y el correo de «propuesta validada» sale solo entonces.
+  publishedAt           DateTime?
+  // G10a H2: datos de la acción formativa para FUNDAE. Los escriben la entidad
+  // que imparte la formación y administración (auditado); la empresa los lee en
+  // su Programación y en la exportación a Excel. Fechas por día (medianoche UTC
+  // del día de España, como startDate).
+  fundaeActionNumber     String? // nº de acción formativa
+  fundaeGroupNumber      String? // nº de grupo
+  fundaeStartNoticeAt    DateTime? // comunicación de inicio (CA)
+  fundaeRltInfoAt        DateTime? // información a la representación legal de los trabajadores (RLT)
+  supervisionDone        Boolean? // supervisión hecha (null: sin dato)
+  supervisionResponsible String? // quién supervisa
+  diplomasIssued         Boolean? // diplomas emitidos (null: sin dato)
+  diplomasIssuedAt       DateTime? // cuándo se emitieron
+  // Revisión del cierre del LOTE01 (B5): cuándo se avisó por última vez al
+  // formador y a la empresa de que la entidad reabrió la impartición. Otra
+  // reapertura antes de HORAS_AVISO_REAPERTURA (lib/formacion-estados.ts) es la
+  // misma corrección y no vuelve a escribirles. Null: nunca se ha avisado.
+  reaperturaAvisadaAt    DateTime?
+  // LOTE03 (L3-16): las solicitudes REQUESTED de un mismo envío del carrito
+  // comparten este id (solo createdByRole COMPANY; CHECK en la base).
+  solicitudGrupoId       String?
   createdAt           DateTime  @default(now())
   updatedAt           DateTime  @updatedAt
 
   matches FormacionMatch[]
+  presupuestos FormacionPresupuesto[]
 
+  @@index([entityId, status])
   @@index([status, createdAt])
   @@index([createdByUserId])
   @@index([assignedTrainerId])
   @@index([courseCodeHash])
   @@index([companyId])
   @@index([companyId, budgetState])
+  @@index([sourceCourseId])
+  @@index([solicitudGrupoId])
 }
 
 // Alumnos (trabajadores de la empresa) añadidos a una formación programada.
@@ -1309,10 +1682,64 @@ model FormacionAlumno {
   source        String?
   // Cuándo se le mandó la invitación de alta, para poder reenviarla sin repetir.
   invitedAt     DateTime?
+  // G13 seguridad S2 (H1): la importación encontró una cuenta de alumno que ya
+  // existía y que no estaba en la plantilla de esa empresa. No se vincula hasta
+  // que la persona acepta en «Tus formaciones»: mientras tanto no cuenta en la
+  // plantilla ni en los recuentos, y la empresa y la entidad solo ven su correo.
+  // Aceptar limpia la marca; rechazar borra la fila.
+  pendienteAceptarDesde DateTime?
+  // Revisión de S2: nombre de la persona EN ESTA inscripción. Al cargar por
+  // fichero, el que traía el fichero (lo que ve quien carga mientras la persona
+  // no acepta: ni su nombre real ni su ficha). Al suprimir sus datos con la
+  // excepción de FUNDAE, su nombre real, que solo se conserva aquí.
+  nombre                String?
   createdAt     DateTime  @default(now())
 
   @@unique([formacionId, studentId])
   @@index([formacionId])
+}
+
+// Revisión de S2 (B-6): una persona rechazó que una carga por fichero la
+// añadiera a esta formación. Mientras exista, otra carga a esa formación no
+// vuelve a proponérselo (la línea sale igual que cualquier otra, sin escribir
+// nada ni mandar correo). Sin FK, criterio del repo.
+model PropuestaRechazada {
+  id          String   @id @default(cuid())
+  formacionId String
+  studentId   String
+  createdAt   DateTime @default(now())
+
+  @@unique([formacionId, studentId])
+}
+
+// G10b H4: historial de presupuestos de una formación. Cada envío de la
+// entidad (o de administración) es una fila; reenviar no borra el anterior: la
+// fila SENT pasa a REPLACED («Sustituido») y se crea otra. La empresa responde
+// a la vigente: ACCEPTED o REJECTED (con motivo opcional). Los campos budget*
+// de Formacion son la copia de la vigente (lib/presupuestos.ts).
+//   state: SENT | ACCEPTED | REJECTED | REPLACED
+model FormacionPresupuesto {
+  id                String    @id @default(cuid())
+  formacionId       String
+  formacion         Formacion @relation(fields: [formacionId], references: [id], onDelete: Cascade)
+  amountCents       Int
+  note              String?
+  // Persona que lo envió (User.id, sin FK; queda también en la auditoría).
+  // Null solo en los convertidos de antes de G10b sin emisor guardado.
+  sentByUserId      String?
+  // Entidad en cuyo nombre se envió (EntityProfile.userId, sin FK); null si
+  // lo envió administración.
+  sentByEntityId    String?
+  sentAt            DateTime
+  state             String    @default("SENT")
+  respondedAt       DateTime?
+  // Motivo de la empresa al rechazarlo (opcional, 300). Lo ve la entidad.
+  responseReason    String?
+  respondedByUserId String?
+  createdAt         DateTime  @default(now())
+
+  @@index([formacionId, sentAt])
+  @@index([formacionId, state])
 }
 
 // Documentación de una formación programada. kind: PLANTILLA (la sube el
@@ -1391,6 +1818,12 @@ model FormacionMatch {
   status        String    @default("PENDING")
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
+  // Revisión del cierre del LOTE01 (B5): se le avisó de que se eligió a otra
+  // persona en ESTA formación («Esta vez se ha elegido a otra persona»). Tras
+  // liberar al formador vuelve a ser candidato; si la entidad elige otra vez a
+  // otro, no se le repite el correo. Se pone en la misma escritura que el
+  // DECLINED de la asignación (no mueve updatedAt aparte).
+  noSeleccionadoAvisadoAt DateTime?
 
   @@unique([formacionId, trainerId]) // idempotencia: un swipe por formador/formación
   @@index([trainerId, status])
@@ -1413,10 +1846,16 @@ model TalentInvite {
   status      String    @default("PENDING")
   createdAt   DateTime  @default(now())
   respondedAt DateTime?
+  // LOTE02 (E3, E4): vista por el alumno en la aplicación (nunca por un píxel
+  // en el correo) y el recordatorio único a las 48 horas.
+  vistaAt               DateTime?
+  recordatorioEnviadoAt DateTime?
+  recordatorioIntentos  Int       @default(0)
 
   @@unique([companyId, studentId, jobId])
   @@index([studentId, status])
   @@index([companyId, createdAt])
+  @@index([status, recordatorioEnviadoAt, createdAt])
 }
 
 // =============================================================
@@ -1431,8 +1870,8 @@ model ProfileChangeRequest {
   id             String    @id @default(cuid())
   studentId      String // User.id del alumno
   field          String // clave de LABOR_FIELDS (lib/labor.ts)
-  currentValue   String? // valor bloqueado en el momento de solicitar
-  requestedValue String // valor propuesto, normalizado
+  currentValue   String? // valor bloqueado en el momento de solicitar (cifrado si field es dni o ssAccount)
+  requestedValue String // valor propuesto, normalizado (cifrado si field es dni o ssAccount)
   reason         String?
   state          String    @default("PENDING")
   requestedAt    DateTime  @default(now())
@@ -1453,8 +1892,11 @@ model ProfileChangeRequest {
 // la rechazan. La entidad también puede añadir a la red a un formador que ya
 // esté registrado.
 // Sin FK a User (additividad pura), criterio del repo.
-//   state:  PENDING | APPROVED | REJECTED
+//   state:  PENDING | APPROVED | REJECTED (CHECK en la base desde la migración
+//           20260929140000_g06_vinculo_formador_estado: la carga de agosto
+//           escribió ACCEPTED y dejó a los formadores de CESEA fuera de su red)
 //   source: REQUEST (alta del propio formador) | INVITE (lo añadió la entidad)
+//           | IMPORT (carga de un cuadro de formadores)
 model TrainerEntityLink {
   id        String @id @default(cuid())
   entityId  String // EntityProfile.userId
@@ -1466,26 +1908,72 @@ model TrainerEntityLink {
   createdAt     DateTime  @default(now())
   respondedAt   DateTime?
   respondedById String? // User.id de quien resolvió, dentro de la entidad
+  // LOTE01 (cierre D10): la entidad le quitó de su red (REJECTED tras estar
+  // APPROVED). Null en un rechazo de su solicitud o de una invitación. Volver a
+  // pedir unirse (o una invitación nueva) lo limpia. El CHECK de estados no cambia.
+  removedAt     DateTime?
+  // LOTE07 (L7-01): el formador retiró su solicitud (source REQUEST o IMPORT) o
+  // la entidad retiró su invitación (source INVITE) mientras estaba pendiente:
+  // REJECTED con esta marca, sin borrar la fila. Volver a pedir unirse (o una
+  // invitación nueva) lo limpia. El CHECK de estados no cambia.
+  retiradaAt    DateTime?
 
   @@unique([entityId, trainerId]) // una relación por par entidad/formador
   @@index([entityId, state])
   @@index([trainerId, state])
 }
 
-// Personas con acceso al perfil de una entidad formativa. En V0 es un registro
-// de quién puede operar en nombre de la entidad (nombre, DNI y correo); no crea
-// cuentas por sí solo, se corresponde con el alta que hace administración.
+// Personas con acceso al portal de una entidad formativa (G08b H2). Cada fila
+// es una persona que opera en nombre de la entidad sin ser su titular: el
+// titular («dar acceso») crea o vincula su cuenta ENTITY (userId) y le manda la
+// invitación; al quitar el acceso la fila pasa a REMOVED (se conserva el
+// histórico) y la sesión de esa cuenta se cierra. La entidad de una sesión la
+// resuelve lib/entidad/sesion.ts (entidadDeSesion): titular primero; si no,
+// la membresía ACTIVE.
+//   status: ACTIVE | REMOVED
+// userId SIN @unique a propósito: una cuenta puede tener filas REMOVED de
+// antes. La regla «como mucho una ACTIVE por cuenta» la comprueba el servidor
+// dentro de la transacción de dar acceso. Volver a dar acceso a un correo que
+// ya tuvo fila en la entidad reactiva esa fila. Las filas anteriores a G08b
+// quedan sin cuenta (userId null): se listan como «Sin cuenta».
 model EntityMember {
   id            String   @id @default(cuid())
   entityId      String // EntityProfile.userId
   name          String
-  dni           String // validado con isValidDniNie (lib/labor.ts)
+  dni           String // validado con isValidDniNie (lib/labor.ts); cifrado (lib/cifrado-datos.ts)
   email         String
   role          String? // texto libre: "Coordinación", "Administración"…
   createdAt     DateTime @default(now())
   createdByUserId String // quién lo dio de alta; sin FK
 
+  userId          String?
+  user            User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+  status          String    @default("ACTIVE")
+  removedAt       DateTime?
+  removedByUserId String? // quién quitó el acceso; sin FK
+
   @@unique([entityId, email])
+  @@index([entityId])
+  @@index([userId, status])
+}
+
+// Acreditaciones de una entidad formativa (G08b H1). Las edita la entidad en
+// /portal/ficha (o administración) y las ve la empresa en su plan formativo y
+// en la ficha de cada curso de la entidad. Caducada = expiresAt anterior a hoy
+// en hora de España (lib/entidad/ficha.ts). pdfUrl: tipo de subida
+// «acreditacion» (solo PDF), que lee cualquier sesión.
+model EntityAccreditation {
+  id        String        @id @default(cuid())
+  entityId  String // EntityProfile.userId
+  entity    EntityProfile @relation(fields: [entityId], references: [userId], onDelete: Cascade)
+  name      String
+  organism  String // "" en las convertidas de la lista antigua (sin dato)
+  number    String?
+  expiresAt DateTime? // día de caducidad, a medianoche UTC
+  pdfUrl    String?
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+
   @@index([entityId])
 }
 
@@ -1499,21 +1987,781 @@ model EntityMember {
 // mismo centro escrito de forma distinta, que es justo lo que se quiere evitar.
 // Sin FK a User (additividad pura), criterio del repo.
 //   status: PENDING | APPROVED | REJECTED
+//
+// LOTE03 (L3-03): dos ámbitos. companyId null = catálogo de estancias (AL8, lo
+// valida administración); companyId = X = centro PROPIO de la empresa X (dueña
+// explícita, nunca deducida del nombre), con dirección y código postal privados
+// (solo la empresa y administración), archivado en vez de borrado y versión
+// para el autoguardado. normalizedName es ÚNICO POR ÁMBITO con dos índices
+// parciales en SQL que Prisma no describe (20261025090000_lote03_centros_empresa):
+// WorkCenter_catalogo_normalizedName_key (companyId null) y
+// WorkCenter_empresa_normalizedName_key (companyId, normalizedName). Por eso
+// las búsquedas por nombre son findFirst con el ámbito (WHERE_CENTRO_CATALOGO
+// de lib/work-centers.ts).
 model WorkCenter {
   id             String  @id @default(cuid())
   name           String
-  normalizedName String  @unique // nombre sin tildes ni signos, para no duplicar
+  normalizedName String // nombre sin tildes ni signos, para no duplicar (único por ámbito, ver arriba)
   city           String?
   province       String? // provincia canónica de lib/geo PROVINCES
   status         String  @default("PENDING")
   // Si al validarlo resulta ser un centro ya existente escrito de otra forma,
   // se rechaza apuntando al canónico en vez de crear un duplicado.
   mergedIntoId   String?
+  // Motivo del rechazo (opcional, máx. 300), visible para el alumno que lo
+  // propuso (G04 H3). Un rechazo por unificación no lleva motivo.
+  rejectionReason String?
 
   createdByUserId String // User.id de quien lo propuso; sin FK
   createdAt       DateTime  @default(now())
   reviewedById    String? // User.id del admin que lo resolvió
   reviewedAt      DateTime?
 
+  // LOTE03 (L3-03): centro propio de una empresa (CHECK en la base: sin empresa,
+  // ni dirección, ni código postal, ni archivado).
+  companyId    String? // empresa dueña (CompanyProfile.userId); null = catálogo de estancias. Sin FK
+  direccion    String? // privada: solo empresa y administración
+  codigoPostal String? // privada
+  archivadoAt  DateTime? // en uso no se borra: se archiva
+  version      Int       @default(0) // autoguardado de cada caja del paso 04
+
   @@index([status, name])
+  @@index([companyId, status])
+}
+
+// =============================================================
+// LOTE01 (AL4): solicitudes de inscripción del alumno a un curso
+// =============================================================
+// El alumno pide la inscripción desde la ficha del curso (con un mensaje
+// opcional). La resuelve la ENTIDAD dueña del curso en /portal/inscripciones:
+// la acepta en una convocatoria de ese curso (se crea su FormacionAlumno ya
+// aceptado, porque lo pidió él), la pone en lista de espera o la rechaza con
+// motivo. El alumno la ve en su perfil y puede retirarla mientras no esté
+// resuelta. Sin pagos. Sin FK (additividad pura), criterio del repo.
+//   estado: PENDIENTE | ACEPTADA | EN_ESPERA | RECHAZADA | RETIRADA (CHECK en la base)
+model SolicitudInscripcion {
+  id            String  @id @default(cuid())
+  courseId      String // Course.id (el curso de entidad; un curso de plataforma va por su copia)
+  entityId      String // EntityProfile.userId dueña del curso: la única que la ve y la resuelve
+  studentUserId String // User.id del alumno
+  nota          String? // mensaje opcional del alumno (500)
+  estado        String  @default("PENDIENTE")
+  motivoRechazo String? // 5 a 300, lo lee el alumno
+  formacionId   String? // convocatoria en la que se aceptó
+  // Una sola viva (PENDIENTE o EN_ESPERA) por alumno y curso: "<alumno>:<curso>"
+  // mientras lo está y null al resolverse (el índice único admite varios null).
+  vivaClave     String? @unique
+
+  createdAt         DateTime  @default(now())
+  respondedAt       DateTime?
+  respondedByUserId String? // quién la resolvió (persona de la entidad); sin FK
+
+  @@index([entityId, estado])
+  @@index([studentUserId, estado])
+  @@index([courseId])
+}
+
+// =============================================================
+// LOTE01 (E14) · Plantilla de la empresa
+// =============================================================
+// Personas que entran en la plantilla de una empresa sin pasar por una
+// formación: la plantilla subida en P&C, la invitación por DNI/NIE o por
+// correo y la solicitud de conexión del alumno («Mi empresa»). Cuenta en la
+// plantilla (plantillaEmpresa) solo con estado ACEPTADO. Sin FK a User
+// (additividad pura), criterio del repo.
+//   origen:        IMPORTACION | INVITACION_DNI | INVITACION_CORREO | CONEXION
+//                  | ADMINISTRADOR (LOTE02, E7: la persona que da de alta la
+//                  empresa; studentUserId es entonces su cuenta COMPANY: sin FK)
+//   estado:        PENDIENTE | ACEPTADO | RECHAZADO
+//   solicitadoPor: EMPRESA | ALUMNO (acepta el otro)
+model MiembroPlantilla {
+  id               String    @id @default(cuid())
+  companyId        String // CompanyProfile.userId
+  studentUserId    String // User.id del alumno
+  origen           String
+  estado           String    @default("PENDIENTE")
+  solicitadoPor    String
+  // Cuenta NUEVA creada por la empresa: queda aceptada al activarla la persona.
+  aceptarAlActivar Boolean   @default(false)
+  // Revisión final (A3): huella del enlace de ESA invitación (lib/token-huella.ts).
+  // Solo activarse con ese enlace la acepta; con otro queda PENDIENTE. null si el correo no salió.
+  tokenActivacion  String?
+  createdAt        DateTime  @default(now())
+  respondedAt      DateTime?
+  // LOTE02 (E6): fecha de alta en la empresa (la edita la empresa).
+  fechaAlta        DateTime?
+  // LOTE02 (E5): motivo opcional de «No trabaja aquí» (lo ve el alumno).
+  motivoRespuesta  String?
+  // LOTE02 (arreglos finales, E5): cuándo aceptó la persona compartir su DNI
+  // con esta empresa al pedir unirse. Sin marca, la empresa solo ve el nombre.
+  dniConsentidoAt  DateTime?
+
+  // LOTE03 (L3-02, L3-07). Sin estado nuevo: la SALIDA es RECHAZADO +
+  // solicitadoPor EMPRESA + salidaAt («salió» = salidaAt != null y estado !=
+  // ACEPTADO, salioDeEmpresa de lib/empresa/alta-directa.ts). Todo paso a
+  // ACEPTADO escribe datosAceptar (limpia la salida). CHECK en la base.
+  //   salidaMotivo: DEJA | NO_TRABAJA_AQUI (la persona) | QUITADA (la empresa la quitó)
+  anadidoDirectoAt   DateTime? // L3-02: entró sin aceptar (alta directa o cuenta creada por la empresa)
+  avisoAlumnoVistoAt DateTime? // L3-02: la persona ya vio «te ha añadido»
+  salidaAt           DateTime? // L3-07: la persona salió (se conserva mientras no vuelva a ACEPTADO)
+  salidaMotivo       String?
+  // LOTE03 (decisión 3): sus datos laborales en esta empresa (la «caja»).
+  laboral            VinculoLaboral?
+
+  @@unique([companyId, studentUserId])
+  @@index([companyId, estado])
+  @@index([studentUserId, estado])
+  @@index([companyId, salidaAt])
+}
+
+// =============================================================
+// LOTE03 · Datos laborales de una persona EN UNA EMPRESA («caja», decisión 3)
+// =============================================================
+// Hija estricta de MiembroPlantilla (1:1, FK compuesta con borrado en cascada):
+// suprimir la cuenta se la lleva, y retirar una solicitud propia sin historia
+// (revisión F1M2-02: una que se reabrió tras salir vuelve a la salida y la caja
+// se queda; lib/empresa/retirar-solicitud.ts).
+// Al SALIR de la empresa (también si la empresa la QUITA de su plantilla) la
+// caja se CONSERVA sin acceso (cambio del coordinador, contratos-lote03.md):
+// ningún lector de empresa ni de alumno la devuelve si salioDeEmpresa; si la
+// persona vuelve, se reutiliza. La fila se crea al añadir con centro, al elegir
+// empresa, al importar o en el primer guardado. Solo la tocan
+// lib/laboral/caja-server.ts, lib/laboral/titular.ts, lib/puestos-server.ts,
+// lib/contadores-lote03.ts, lib/admin/cuentas.ts y los scripts lote03-* (lo
+// vigila lib/lote03-frontera.test.ts). La fecha de alta NO está aquí: sigue en
+// MiembroPlantilla.fechaAlta. Nunca hay caja de una fila con origen
+// ADMINISTRADOR (studentUserId es entonces una cuenta COMPANY). CHECK en la base.
+//   turno:          MANANA | TARDE | NOCHE | PARTIDA | ROTATIVO | OTRO
+//   actualizadoPor: ALUMNO | EMPRESA | ADMIN | MIGRACION | IMPORTACION
+model VinculoLaboral {
+  companyId            String // CompanyProfile.userId
+  studentUserId        String // User.id del alumno
+  miembro              MiembroPlantilla @relation(fields: [companyId, studentUserId], references: [companyId, studentUserId], onDelete: Cascade, onUpdate: Cascade)
+  puesto               String? // texto visible (2 a 160)
+  puestoClave          String? // clave de lib/puestos-catalogo.ts o "propuesto:<PuestoPropuesto.id>"; null = texto sin emparejar
+  centroId             String? // WorkCenter.id con companyId = esta empresa; null = «<empresa> (sin centro concreto)»; sin FK
+  turno                String?
+  categoriaProfesional String? // PROFESSIONAL_CATEGORIES (lib/labor.ts)
+  grupoCotizacion      String? // "1".."11"
+  costeHoraCents       Int? // 1 a 99999; sin cifrar (como StudentProfile.costPerHourCents)
+  version              Int       @default(0)
+  actualizadoPor       String?
+  actualizadoPorUserId String?
+  cambiosAlumnoAt      DateTime? // L3-04: la persona cambió puesto, centro o turno
+  cambiosVistosAt      DateTime? // L3-04: la empresa abrió la ficha después (null = sin ver)
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  @@id([companyId, studentUserId])
+  @@index([studentUserId])
+  @@index([centroId])
+  @@index([companyId, cambiosAlumnoAt])
+}
+
+// =============================================================
+// LOTE03 (L3-05) · Puestos escritos a mano que no están en lib/puestos-catalogo.ts
+// =============================================================
+// Uno por texto normalizado. Se guarda en el perfil como puestoClave
+// "propuesto:<id>". Solo los APROBADO se ofrecen a los demás. UNIDO apunta a una
+// clave del catálogo (la lectura lo resuelve); CORREGIDO lleva el texto bueno.
+// Los usos se cuentan, no se guardan. Sin FK. CHECK en la base.
+//   estado: PENDIENTE | APROBADO | UNIDO | CORREGIDO | RECHAZADO
+//   origen: CAJA | FICHA | EXPERIENCIA | ALTA | REGISTRO | IMPORTACION | MIGRACION
+model PuestoPropuesto {
+  id                 String    @id @default(cuid())
+  texto              String // tal como quedó tras validarlo (mayúscula inicial)
+  normalizado        String    @unique // claveTexto (lib/competencias.ts)
+  estado             String    @default("PENDIENTE")
+  claveCatalogo      String? // si UNIDO
+  textoCorregido     String? // si CORREGIDO
+  origen             String
+  propuestoPorUserId String? // null al suprimir la cuenta
+  revisadoPorUserId  String?
+  revisadoAt         DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  @@index([estado, createdAt])
+}
+
+// =============================================================
+// LOTE02 · Altas de empresas y entidades (V1-V5)
+// =============================================================
+// Una solicitud por cuenta (tipo + perfilId). La fuente de verdad de
+// «validada» sigue siendo CompanyProfile.verified / EntityProfile.validatedAt;
+// el estado de aquí y estadoAlta de la ficha los deja coherentes
+// cambiarEstadoAlta (lib/cuenta-alta-server.ts). Sin FK hacia las fichas
+// (criterio del repo). CHECK de valores en la base.
+//   tipo:   EMPRESA | ENTIDAD
+//   estado: PENDIENTE_DOCUMENTACION | EN_REVISION | NECESITA_INFO | VALIDADA | RECHAZADA
+// datos (JSON): razón social, CIF, domicilio social, representante (nombre y
+// DNI/NIE CIFRADO con su huella) y si quien registra es el representante.
+// comprobaciones (JSON): { clave: { ok, por, at, nota } } de la revisión (V3).
+model SolicitudAlta {
+  id                   String    @id @default(cuid())
+  tipo                 String
+  perfilId             String // CompanyProfile.userId o EntityProfile.userId; sin FK
+  estado               String    @default("PENDIENTE_DOCUMENTACION")
+  datos                String    @default("{}")
+  comprobaciones       String    @default("{}")
+  motivo               String? // lo que lee la cuenta: qué falta (NECESITA_INFO) o por qué se rechaza
+  notaInterna          String? // solo administración
+  enviadaAt            DateTime?
+  resueltaAt           DateTime?
+  resueltaPor          String? // User.id del administrador; sin FK
+  validadaTrasReunion  Boolean   @default(false)
+  reunionSolicitadaAt  DateTime?
+  reunionSolicitadaPor String? // User.id de quien pulsó «Prefiero validar en una reunión»; sin FK
+  version              Int       @default(0)
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  documentos DocumentoAlta[]
+
+  @@unique([tipo, perfilId])
+  @@index([estado, updatedAt])
+}
+
+// Documento de una solicitud de alta (tipo de subida privado «alta»: solo lo
+// abren administración y la propia cuenta, comprobado por consulta a esta
+// tabla, nunca por el nombre del fichero). Retirar no borra la fila.
+//   clase: ESCRITURA_ESTATUTOS | TARJETA_CIF | PODERES | ACREDITACION_FORMACION | OTRO
+model DocumentoAlta {
+  id          String        @id @default(cuid())
+  solicitudId String
+  solicitud   SolicitudAlta @relation(fields: [solicitudId], references: [id], onDelete: Cascade)
+  clase       String
+  fileUrl     String
+  fileName    String
+  subidoPor   String // User.id de la persona que lo subió; sin FK
+  retiradoAt  DateTime?
+  createdAt   DateTime      @default(now())
+
+  @@index([solicitudId, clase])
+  @@index([fileUrl])
+}
+
+// =============================================================
+// LOTE02 · Perfiles públicos (E8, E9, E13)
+// =============================================================
+// Verificación de la web y del LinkedIn de una empresa o entidad. Cambiar el
+// valor vuelve a SIN_VERIFICAR (lib/verificacion-presencia).
+//   tipo:   EMPRESA | ENTIDAD
+//   canal:  WEB | LINKEDIN
+//   metodo: CORREO_DOMINIO | META | FICHERO | DNS_TXT | MANUAL
+//   estado: SIN_VERIFICAR | VERIFICADA | NO_COINCIDE
+model VerificacionPresencia {
+  id              String    @id @default(cuid())
+  tipo            String
+  perfilId        String
+  canal           String
+  valor           String
+  metodo          String?
+  codigo          String?   @unique
+  estado          String    @default("SIN_VERIFICAR")
+  intentos        Int       @default(0)
+  ultimoIntentoAt DateTime?
+  ultimoError     String?
+  verificadaAt    DateTime?
+  verificadaPor   String? // User.id o "sistema"; sin FK
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@unique([tipo, perfilId, canal])
+}
+
+// Dirección pública anterior: reservada para siempre y redirige a la actual
+// (lib/perfil-slug.ts, cambiarSlug).
+model SlugAnterior {
+  id        String   @id @default(cuid())
+  tipo      String // EMPRESA | ENTIDAD
+  slug      String
+  perfilId  String
+  createdAt DateTime @default(now())
+
+  @@unique([tipo, slug])
+  @@index([tipo, perfilId])
+}
+
+// =============================================================
+// LOTE02 · Crédito formativo por año (E11, EN1)
+// =============================================================
+// Consumido = asignado − disponible: se calcula, no se guarda. CHECK en la
+// base: 0 ≤ disponible ≤ asignado cuando los dos tienen valor.
+model CreditoFormativo {
+  id                     String    @id @default(cuid())
+  companyId              String // CompanyProfile.userId; sin FK
+  anio                   Int
+  asignadoCents          Int?
+  disponibleCents        Int?
+  actualizadoAt          DateTime?
+  actualizadoPorUserId   String?
+  actualizadoPorEntityId String? // EntityProfile.userId si lo cambió una entidad
+  version                Int       @default(0)
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+  // LOTE03 (L3-08, decisión 4): null = el disponible SIGUE al asignado; con
+  // fecha, alguien lo editó a mano y ya no lo sigue.
+  disponibleEditadoAt    DateTime?
+
+  historial HistorialCredito[]
+
+  @@unique([companyId, anio])
+}
+
+//   actorRol: COMPANY | ENTITY | ADMIN | MIGRACION
+model HistorialCredito {
+  id                String           @id @default(cuid())
+  creditoId         String
+  credito           CreditoFormativo @relation(fields: [creditoId], references: [id], onDelete: Cascade)
+  asignadoAntes     Int?
+  asignadoDespues   Int?
+  disponibleAntes   Int?
+  disponibleDespues Int?
+  actorUserId       String
+  actorRol          String
+  entityId          String?
+  nota              String?
+  createdAt         DateTime         @default(now())
+
+  @@index([creditoId, createdAt])
+}
+
+// =============================================================
+// LOTE03 · Peticiones de la empresa sobre su crédito (L3-08, L3-10, L3-11)
+// =============================================================
+//   destino: ADMIN | ENTIDAD     estado: PENDIENTE | ATENDIDA | DESCARTADA
+// Una viva por empresa y destino: vivaClave = "<companyId>:ADMIN" o
+// "<companyId>:<entityId>" mientras está PENDIENTE; null al resolverse.
+// Reenviar pasados PETICION_CREDITO_REENVIO_DIAS reutiliza la fila. Sin FK.
+// CHECK en la base (lib/empresa/peticiones-credito-reglas.ts lleva sus listas).
+model PeticionCredito {
+  id                String    @id @default(cuid())
+  companyId         String
+  destino           String
+  entityId          String? // obligatorio con ENTIDAD, null con ADMIN
+  anio              Int // año en curso (Madrid) al pedir
+  estado            String    @default("PENDIENTE")
+  creadaPorUserId   String
+  enviadaAt         DateTime  @default(now())
+  envios            Int       @default(1)
+  correoEnviadoAt   DateTime?
+  vivaClave         String?   @unique
+  resueltaAt        DateTime?
+  resueltaPorUserId String?
+  nota              String? // de quien la atiende (500); la ve la empresa
+  createdAt         DateTime  @default(now())
+
+  @@index([destino, estado, enviadaAt])
+  @@index([entityId, estado, enviadaAt])
+  @@index([companyId, createdAt])
+}
+
+// =============================================================
+// LOTE02 · Entidades desbloqueadas por una empresa (E12)
+// =============================================================
+// Desbloquear es para siempre. Las estrellas antiguas (trustedEntityIds) se
+// migran aquí con coste 0 (scripts/lote02-relleno.mjs). Sin FK.
+//   origen: PAGO | ESTRELLA_MIGRADA | ADMIN | GRATIS (LOTE03, L3-12: lo que ya
+//           veía una empresa de una entidad que deja de ser gratis; coste 0)
+model DesbloqueoEntidad {
+  id        String   @id @default(cuid())
+  companyId String // CompanyProfile.userId
+  entityId  String // EntityProfile.userId
+  skpCost   Int      @default(0)
+  txId      String? // SkpTransaction.id del cargo, si lo hubo
+  origen    String
+  createdBy String? // User.id; null en la migración
+  createdAt DateTime @default(now())
+
+  @@unique([companyId, entityId])
+  @@index([entityId])
+}
+
+// =============================================================
+// LOTE03 (L3-09) · Empresas desbloqueadas por una entidad formativa
+// =============================================================
+// Abre SOLO el perfil público y el contacto; NO crea vínculo (entidadVeEmpresa
+// no lo lee). Para siempre. Sin FK. CHECK en la base.
+//   origen: PAGO | ADMIN
+model DesbloqueoEmpresa {
+  id        String   @id @default(cuid())
+  entityId  String // EntityProfile.userId (la entidad, nunca la persona con acceso)
+  companyId String // CompanyProfile.userId
+  skpCost   Int      @default(0)
+  txId      String? // SkpTransaction.id del cargo
+  origen    String
+  createdBy String? // User.id de quien lo hizo (titular o persona con acceso)
+  createdAt DateTime @default(now())
+
+  @@unique([entityId, companyId])
+  @@index([companyId])
+}
+
+// =============================================================
+// LOTE02 · Competencias guiadas del alumno (AL2)
+// =============================================================
+//   tipo:   IDIOMA | DIGITAL | PERSONAL | PROFESIONAL | OTRA
+//   origen: ALUMNO | MIGRACION | CV
+// clave: la del catálogo (lib/competencias-catalogo.ts) o, en OTRA, el texto
+// normalizado. StudentProfile.competencies/softSkills y User.languages se
+// quedan como legado (no se borran).
+model CompetenciaAlumno {
+  id                String         @id @default(cuid())
+  userId            String
+  alumno            StudentProfile @relation(fields: [userId], references: [userId], onDelete: Cascade)
+  tipo              String
+  clave             String
+  nombre            String
+  nivel             String?
+  origen            String         @default("ALUMNO")
+  pendienteRevision Boolean        @default(false)
+  validadaEcoe      Boolean        @default(false)
+  orden             Int            @default(0)
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+
+  @@unique([userId, tipo, clave])
+  @@index([tipo, clave])
+}
+
+// =============================================================
+// LOTE02 · Cursos: clics e índice de recomendaciones (AL6, AL7)
+// =============================================================
+// Clics en «Ir al curso» por curso y día (sin datos personales).
+model ClicCursoDia {
+  courseId String
+  dia      DateTime @db.Date
+  clics    Int      @default(0)
+
+  @@id([courseId, dia])
+}
+
+// Índice de palabras clave de un curso (BM25, sin vector).
+model IndiceCurso {
+  courseId  String   @id
+  textoHash String
+  terminos  String   @default("{}") // JSON
+  longitud  Int      @default(0)
+  updatedAt DateTime @updatedAt
+}
+
+// Recomendaciones calculadas de un alumno (se recalculan en segundo plano).
+model RecomendacionAlumno {
+  userId         String    @id
+  perfilHash     String?
+  resultados     String    @default("[]") // JSON
+  pendienteDesde DateTime?
+  calculadoAt    DateTime?
+}
+
+// =============================================================
+// LOTE02 · Borradores privados de formularios (G1)
+// =============================================================
+// Lo escribe el autoguardado en los formularios que envían algo a otra
+// persona (publicar una oferta, invitar…): el envío real sigue en su botón y
+// el borrador se borra al enviar. datos va cifrado si lleva DNI o teléfono.
+model BorradorFormulario {
+  id         String   @id @default(cuid())
+  userId     String // User.id; sin FK
+  formulario String
+  datos      String   @default("{}")
+  version    Int      @default(0)
+  caducaAt   DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([userId, formulario])
+  @@index([caducaAt])
+}
+
+// =============================================================
+// LOTE03 (L3-19) · Meet and Greet: conversación 1 a 1 empresa-alumno
+// =============================================================
+// Una conversación por PAREJA empresa-alumno (TalentInvite solo es única por
+// empresa + alumno + oferta). Se abre o reabre al aceptar una invitación. Solo
+// la leen sus dos participantes; administración solo las cuenta. Sin FK a User
+// ni a TalentInvite. CHECK en la base.
+//   estado: ABIERTA | CERRADA (cerradaPor: EMPRESA | ALUMNO). Cerrada = solo lectura.
+model ConversacionTalento {
+  id                   String           @id @default(cuid())
+  companyId            String
+  studentId            String
+  inviteId             String? // última TalentInvite aceptada que la abrió
+  estado               String           @default("ABIERTA")
+  cerradaPor           String?
+  cerradaAt            DateTime?
+  ultimoMensajeAt      DateTime?
+  noLeidosEmpresa      Int              @default(0)
+  noLeidosAlumno       Int              @default(0)
+  leidaEmpresaAt       DateTime? // null = la empresa no la ha abierto (cuenta en su burbuja)
+  leidaAlumnoAt        DateTime?
+  avisoCorreoEmpresaAt DateTime?
+  avisoCorreoAlumnoAt  DateTime?
+  createdAt            DateTime         @default(now())
+  mensajes             MensajeTalento[]
+
+  @@unique([companyId, studentId])
+  @@index([companyId, ultimoMensajeAt])
+  @@index([studentId, ultimoMensajeAt])
+}
+
+// Mensaje de una conversación. Solo texto (MENSAJE_MEET_MAX). El mensaje de la
+// invitación se copia como primero con deInvitacionId.
+//   autor: EMPRESA | ALUMNO
+model MensajeTalento {
+  id             String              @id @default(cuid())
+  conversacionId String
+  conversacion   ConversacionTalento @relation(fields: [conversacionId], references: [id], onDelete: Cascade)
+  autor          String
+  autorUserId    String?
+  texto          String
+  claveEnvio     String?
+  deInvitacionId String?
+  createdAt      DateTime            @default(now())
+
+  @@unique([conversacionId, claveEnvio])
+  @@unique([conversacionId, deInvitacionId])
+  @@index([conversacionId, createdAt])
+}
+
+// =============================================================
+// LOTE04 (L4-03, L4-04, L4-05) · Roles internos de una organización
+// =============================================================
+// Genéricas para empresa y entidad (orgTipo + orgId). La titular crea los roles,
+// decide qué secciones abre cada uno (lib/org/secciones.ts, el catálogo) y
+// asigna uno a cada persona de su plantilla. El acceso se decide en cada
+// petición (lib/org/asignacion.ts, asignacionVigente): no se guarda nada en la
+// sesión. Sin FK a User ni a los perfiles (criterio del repo). CHECK en la base.
+//   orgTipo:      EMPRESA | ENTIDAD
+//   orgId:        CompanyProfile.userId o EntityProfile.userId
+//   claveInicial: CEO | CTO | CMO | RRHH | TRABAJADOR (los sembrados; null si lo creó la titular)
+model RolOrganizacion {
+  id                String                      @id @default(cuid())
+  orgTipo           String
+  orgId             String
+  nombre            String // 2 a 40, recortado
+  nombreNormalizado String // minúsculas, sin tildes y con los espacios colapsados (único por organización)
+  claveInicial      String?
+  orden             Int                         @default(0)
+  version           Int                         @default(0)
+  createdAt         DateTime                    @default(now())
+  updatedAt         DateTime                    @updatedAt
+  permisos          RolOrganizacionPermiso[]
+  asignaciones      AsignacionRolOrganizacion[]
+
+  @@unique([orgTipo, orgId, nombreNormalizado])
+  // Destino de la FK compuesta de AsignacionRolOrganizacion: un rol solo se asigna en su organización.
+  @@unique([id, orgTipo, orgId])
+}
+
+// Una sección abierta para un rol. CHECK: seccion es una clave del catálogo (lo
+// vigila lib/lote04-secciones.test.ts). LOTE05 (L5-05): con su nivel, VER o
+// EDITAR (CHECK); sin fila, la sección queda OCULTA. Las filas de antes, EDITAR.
+model RolOrganizacionPermiso {
+  rolId   String
+  rol     RolOrganizacion @relation(fields: [rolId], references: [id], onDelete: Cascade)
+  seccion String
+  nivel   String          @default("EDITAR")
+
+  @@id([rolId, seccion])
+}
+
+// El rol de una persona en una organización (uno como mucho). Borrar el rol la
+// borra (cascada). Solo da acceso mientras la fila de plantilla siga aceptada y
+// sea anterior a la asignación: quien sale y vuelve no recupera el rol.
+model AsignacionRolOrganizacion {
+  orgTipo           String
+  orgId             String
+  userId            String // la persona (cuenta STUDENT); sin FK
+  rolId             String
+  rol               RolOrganizacion @relation(fields: [rolId, orgTipo, orgId], references: [id, orgTipo, orgId], onDelete: Cascade)
+  asignadaPorUserId String // la cuenta titular que la asignó; sin FK
+  asignadaAt        DateTime        @default(now())
+
+  @@id([orgTipo, orgId, userId])
+  @@index([userId])
+  @@index([rolId])
+}
+
+// Marca de que los roles iniciales de una organización ya se sembraron (una sola
+// vez: si la titular los borra todos, no reaparecen).
+model ConfigRolesOrganizacion {
+  orgTipo         String
+  orgId           String
+  inicializadosAt DateTime @default(now())
+
+  @@id([orgTipo, orgId])
+}
+
+// =============================================================
+// LOTE04 (L4-02) · Plantilla de una entidad de formación
+// =============================================================
+// Como MiembroPlantilla (empresa), en su propia tabla: no toca la plantilla de
+// empresa ni sus flujos. Sin caja laboral: solo el puesto. Toda invitación la
+// acepta la persona, salvo la cuenta nueva creada por correo, que queda
+// aceptada al activarse con el enlace de esa invitación (aceptarAlActivar +
+// tokenActivacion). Todo paso a ACEPTADO escribe respondedAt (la vigencia de
+// los roles la compara). Sin FK a User. CHECK en la base.
+//   origen:        IMPORTACION | INVITACION_DNI | INVITACION_CORREO | CONEXION
+//   estado:        PENDIENTE | ACEPTADO | RECHAZADO
+//   solicitadoPor: ENTIDAD | ALUMNO (quién tiene que aceptar es el otro)
+//   salidaMotivo:  DEJA (la persona) | QUITADA (la entidad); con salidaAt
+model MiembroPlantillaEntidad {
+  id                String    @id @default(cuid())
+  entityId          String // EntityProfile.userId
+  studentUserId     String // User.id del alumno
+  origen            String
+  estado            String    @default("PENDIENTE")
+  solicitadoPor     String
+  aceptarAlActivar  Boolean   @default(false)
+  tokenActivacion   String? // huella del enlace de ESA invitación (lib/token-huella.ts)
+  puesto            String? // 2 a 160
+  dniConsentidoAt   DateTime? // la persona aceptó compartir su DNI enmascarado al pedir unirse
+  invitadoPorUserId String? // quién invitó (titular, persona con acceso o delegada); sin FK
+  createdAt         DateTime  @default(now())
+  respondedAt       DateTime?
+  salidaAt          DateTime?
+  salidaMotivo      String?
+
+  @@unique([entityId, studentUserId])
+  @@index([entityId, estado])
+  @@index([studentUserId, estado])
+  @@index([tokenActivacion])
+}
+
+// =============================================================
+// LOTE05 (L5-11) · Formadores de la red asociados a un curso
+// =============================================================
+// Uno por GRUPO de cursos (Course.grupoId = id del raíz) y formador. Lo guarda
+// el formulario del curso con formadores que tienen vínculo APPROVED con la
+// entidad; quitar a alguien de la red no borra la fila, pero deja de contar.
+// Sin FK. CHECK en la base.
+model CursoFormador {
+  id        String   @id @default(cuid())
+  grupoId   String // Course.grupoId (= id del curso raíz del grupo)
+  entityId  String // EntityProfile.userId
+  trainerId String // TrainerProfile.userId
+  createdBy String? // User.id de quien lo asoció (titular, persona con acceso o con un rol)
+  createdAt DateTime @default(now())
+  // LOTE07 (L7-04): el formador pide asociarse (origen FORMADOR, PENDIENTE) y la
+  // entidad acepta o rechaza. Lo que asocia la entidad nace ACEPTADA. Solo cuenta
+  // ACEPTADA (tablero, correo y bloque de la convocatoria). CHECK en la base.
+  estado       String    @default("ACEPTADA") // ACEPTADA | PENDIENTE | RECHAZADA
+  origen       String    @default("ENTIDAD") // ENTIDAD | FORMADOR
+  respondidaAt DateTime? // cuándo respondió la entidad a la petición del formador
+
+  @@unique([grupoId, trainerId])
+  @@index([trainerId])
+  @@index([entityId])
+  @@index([entityId, estado])
+}
+
+// =============================================================
+// LOTE05 (L5-07) · Chat entidad ↔ formador
+// =============================================================
+// Una conversación por PAREJA entidad-formador (la empieza cualquiera de los
+// dos). Se escribe con el vínculo PENDING o APPROVED (sin removedAt); con el
+// vínculo REJECTED o quitado queda en lectura (lo decide lib/red-mensajes, no
+// la tabla). Solo la leen sus dos partes; administración solo las cuenta. Sin
+// FK a User. CHECK en la base.
+//   creadaPorRol: ENTIDAD | FORMADOR
+model ConversacionRed {
+  id                    String       @id @default(cuid())
+  entityId              String // EntityProfile.userId (la entidad, nunca la persona con acceso)
+  trainerId             String // TrainerProfile.userId
+  creadaPorRol          String
+  creadaAt              DateTime     @default(now())
+  ultimoMensajeAt       DateTime?
+  noLeidosEntidad       Int          @default(0)
+  noLeidosFormador      Int          @default(0)
+  leidoEntidadAt        DateTime?
+  leidoFormadorAt       DateTime?
+  avisoCorreoEntidadAt  DateTime?
+  avisoCorreoFormadorAt DateTime?
+  mensajes              MensajeRed[]
+
+  @@unique([entityId, trainerId])
+  @@index([entityId, ultimoMensajeAt])
+  @@index([trainerId, ultimoMensajeAt])
+}
+
+// Mensaje del chat. Solo texto (2000). claveEnvio evita duplicados al reintentar
+// (única por conversación, como MensajeTalento).
+//   autor: ENTIDAD | FORMADOR
+model MensajeRed {
+  id             String          @id @default(cuid())
+  conversacionId String
+  conversacion   ConversacionRed @relation(fields: [conversacionId], references: [id], onDelete: Cascade)
+  autor          String
+  autorUserId    String? // User.id de quien lo escribió (en la entidad, la persona); null si se suprimió
+  texto          String
+  claveEnvio     String?
+  createdAt      DateTime        @default(now())
+
+  @@unique([conversacionId, claveEnvio])
+  @@index([conversacionId, createdAt])
+}
+
+// =============================================================
+// LOTE05 (L5-15) · Formadores desbloqueados por una entidad
+// =============================================================
+// «Descubrir formadores», como DesbloqueoEmpresa: abre la ficha del formador
+// (nombre, bio, tarifa y CV) y «Invitar a mi red»; NO crea vínculo. Para
+// siempre. Sin FK. CHECK en la base.
+//   origen: PAGO | ADMIN
+model DesbloqueoFormador {
+  id          String   @id @default(cuid())
+  entityId    String // EntityProfile.userId (la entidad, nunca la persona con acceso)
+  trainerId   String // TrainerProfile.userId
+  origen      String
+  skpGastados Int      @default(0)
+  txId        String? // SkpTransaction.id del cargo, si lo hubo
+  createdBy   String? // User.id de quien lo hizo
+  createdAt   DateTime @default(now())
+
+  @@unique([entityId, trainerId])
+  @@index([trainerId])
+}
+
+// =============================================================
+// LOTE06 (L6-02, L6-05) · Desbloqueos de evaluaciones
+// =============================================================
+// Un desbloqueo = un intento de una evaluación (ACAT, EROP, ECHO o EVOP) para un
+// alumno. Lo paga el alumno con sus SkillPoints (pagador ALUMNO, sin
+// organización) o una empresa o entidad de cuya plantilla forma parte (pagador
+// EMPRESA o ENTIDAD, orgId = su CompanyProfile.userId o EntityProfile.userId;
+// nunca la persona que pulsa). Lo escribe SOLO lib/evaluaciones/desbloqueo-server.ts.
+//   tipo:    ACAT | EROP | ECHO | EVOP (ECOE es «Próximamente»)
+//   pagador: ALUMNO | EMPRESA | ENTIDAD
+//   estado:  SOLICITADA (el alumno la pidió a su organización; sin cobrar)
+//            RECHAZADA  (la organización dijo que no)
+//            DISPONIBLE (pagada, sin hacer; una por alumno y tipo)
+//            CONSUMIDA  (hecha: evaluacionId = la fila de su tabla)
+//            ANULADA    (una solicitud que ya no hace falta: otro la pagó)
+// Sin FK (criterio del repo). CHECK y dos índices únicos PARCIALES en la base
+// (un DISPONIBLE por alumno y tipo; una SOLICITADA por alumno, tipo y
+// organización), que Prisma no representa.
+model DesbloqueoEvaluacion {
+  id            String    @id @default(cuid())
+  studentUserId String // User.id del alumno
+  tipo          String
+  pagador       String
+  orgId         String? // CompanyProfile.userId o EntityProfile.userId; null si y solo si pagador = ALUMNO
+  estado        String
+  skpCost       Int       @default(0) // lo cobrado (0 mientras está SOLICITADA o RECHAZADA)
+  txId          String? // SkpTransaction.id del cargo, si lo hubo
+  creadaPor     String? // User.id de quien pulsó (el alumno o la persona de la organización); null si se suprimió su cuenta
+  solicitadaAt  DateTime? // si nació como solicitud del alumno
+  resueltaAt    DateTime? // aprobada o pagada por la organización, o rechazada o anulada
+  resueltaPor   String? // User.id de quien la aprobó, pagó o rechazó
+  iniciadaAt    DateTime? // LOTE06 (RE2-01): cuándo empezó a contar el tiempo según el servidor (ECHO: «Empezar razonamiento»); una sola vez
+  razonamiento  String? // LOTE06 (RE2-09): ECHO, las respuestas del razonamiento que ya llegaron al servidor, con su hora de llegada (JSON); se vacía al guardar
+  consumidaAt   DateTime?
+  evaluacionId  String? // id de la fila de AcatEvaluation, EropEvaluation, EchoEvaluation o EvopEvaluation (según tipo)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([orgId, estado])
+  @@index([studentUserId, estado])
 }

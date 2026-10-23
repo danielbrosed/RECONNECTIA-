@@ -20,6 +20,12 @@ export type VerifyEmailDeps = {
   findUserByEmail(email: string): Promise<{ id: string } | null>;
   markVerified(userId: string): Promise<void>;
   deleteToken(token: string): Promise<void>;
+  /**
+   * LOTE05 · arreglos (RB4-02): lo que pasa después de verificar la cuenta con
+   * ESTE enlace (la fila de plantilla del alta doble se acepta solo así). Un fallo
+   * aquí no deshace la verificación.
+   */
+  alVerificar?(userId: string): Promise<void>;
   // Reloj inyectable para probar la caducidad sin depender de la hora real.
   now?: () => Date;
 };
@@ -58,5 +64,6 @@ export async function verifyEmailWithToken(
   // está verificado y el enlace sobrante caduca solo.
   await deps.markVerified(user.id);
   await deps.deleteToken(token);
+  if (deps.alVerificar) await deps.alVerificar(user.id).catch(() => {});
   return { ok: true };
 }

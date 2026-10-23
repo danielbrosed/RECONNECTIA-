@@ -1,4 +1,5 @@
 import type { PrismaClient } from "@prisma/client";
+import { slugLibre } from "@/lib/perfil-slug";
 
 const NON_ALNUM = /[^a-z0-9]+/g;
 const EDGE_DASH = /^-+|-+$/g;
@@ -14,23 +15,22 @@ export function slugify(input: string): string {
     .slice(0, 60);
 }
 
-// Busca un slug libre añadiendo sufijo -2, -3, ... si el base ya está cogido.
-// Pasamos el cliente Prisma desde el caller para no acoplar a una instancia global.
+/**
+ * Primera dirección libre para una empresa a partir de su nombre (registro,
+ * alta y cambio de rol por administración, «Mi empresa» sin dirección).
+ *
+ * LOTE02 · revisión de la fase 1 (M12): antes solo miraba CompanyProfile.slug,
+ * así que un alta nueva podía quedarse con la dirección ANTERIOR de otra
+ * empresa (reservada para siempre en SlugAnterior, E8) y llevarse sus enlaces,
+ * o con una palabra reservada («empresa», su raíz por defecto). Ahora es
+ * slugLibre (lib/perfil-slug.ts): salta las actuales, las anteriores y las
+ * reservadas, y no devuelve una anterior de la propia cuenta.
+ * Pasamos el cliente Prisma desde el caller para no acoplar a una instancia global.
+ */
 export async function ensureUniqueCompanySlug(
-  prisma: PrismaClient,
+  prisma: Pick<PrismaClient, "companyProfile" | "entityProfile" | "slugAnterior">,
   base: string,
   excludeUserId?: string,
 ): Promise<string> {
-  const root = slugify(base) || "empresa";
-  let candidate = root;
-  let i = 2;
-  while (true) {
-    const existing = await prisma.companyProfile.findUnique({
-      where: { slug: candidate },
-      select: { userId: true },
-    });
-    if (!existing || existing.userId === excludeUserId) return candidate;
-    candidate = `${root}-${i++}`;
-    if (i > 999) throw new Error(`No pude generar slug único para "${base}"`);
-  }
+  return slugLibre(prisma, "EMPRESA", base, excludeUserId);
 }
