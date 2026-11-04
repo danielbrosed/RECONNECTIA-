@@ -5,7 +5,24 @@
 
 import { excesoHoras, mensajeExcesoHoras } from "@/lib/sesiones-horas";
 
-export type Session = { day: string; from: string; to: string };
+/**
+ * LOTE08 (L8-02): en Mixta cada sesión es presencial u online. En las demás
+ * modalidades la sesión no lleva modo (lib/modalidades.ts, normalizarModoSesiones),
+ * y una sesión sin modo se pinta exactamente igual que antes.
+ */
+export const MODOS_SESION = ["PRESENCIAL", "ONLINE"] as const;
+export type ModoSesion = (typeof MODOS_SESION)[number];
+export const MODO_SESION_LABELS: Record<ModoSesion, string> = {
+  PRESENCIAL: "Presencial",
+  ONLINE: "Online",
+};
+
+/** ¿Es uno de los modos de sesión? */
+export function esModoSesion(v: unknown): v is ModoSesion {
+  return typeof v === "string" && (MODOS_SESION as readonly string[]).includes(v);
+}
+
+export type Session = { day: string; from: string; to: string; modo?: ModoSesion };
 export type ScheduleCheck = { ok: boolean; error: string };
 
 export const MESES_ES = [
@@ -78,6 +95,10 @@ export function primerSolape(sessions: Session[]): [number, number] | null {
  * Mensajes que enseña el editor de sesiones. Vacío si todo cuadra.
  * LOTE07 (L7-07): con `horasMax` (las horas del curso), también si las sesiones
  * suman más (el mismo texto que dan las acciones del servidor).
+ * LOTE08 (revisión RF1F-01): no avisa de sesiones metidas fuera de orden. Las
+ * tres acciones que las guardan (convocatoria, fechas de la entidad y propuesta
+ * de la empresa) las ordenan por día y hora antes de validarlas, así que lo
+ * guardado siempre va en orden.
  */
 export function problemasSesiones(sessions: Session[], opciones: { horasMax?: number | null } = {}): string[] {
   const out: string[] = [];

@@ -1653,6 +1653,20 @@ model Formacion {
   // LOTE03 (L3-16): las solicitudes REQUESTED de un mismo envío del carrito
   // comparten este id (solo createdByRole COMPANY; CHECK en la base).
   solicitudGrupoId       String?
+  // LOTE08 (L8-05, anexo F A1): la convocatoria que una entidad crea para una
+  // empresa espera a que la empresa la acepte: status COMPANY_PENDING (con
+  // empresaPropuestaAt); si la rechaza, COMPANY_REJECTED con empresaRespondidaAt
+  // y su motivo (5 a 300, lo lee la entidad); si la entidad la retira antes,
+  // COMPANY_WITHDRAWN. Al aceptarla pasa a PUBLISHED con empresaRespondidaAt.
+  // CHECK en la base (Formacion_propuestaEmpresa_check).
+  empresaPropuestaAt     DateTime?
+  empresaRespondidaAt    DateTime?
+  empresaRechazoMotivo   String?
+  // LOTE08 (fase C, revisión): la «Nota para los formadores» de una convocatoria
+  // de Teleformación con apertura y cierre, que no tiene ronda donde ir (las
+  // demás modalidades la guardan en su ronda, rounds[0].note, y la dejan vacía).
+  // Nadie la lee. CHECK de longitud en la base (Formacion_notaConvocatoria_check).
+  notaConvocatoria       String?
   createdAt           DateTime  @default(now())
   updatedAt           DateTime  @updatedAt
 
@@ -1808,6 +1822,16 @@ model TrainerCourseCode {
 //   decision: LIKE (derecha) | DISMISS (izquierda)
 //   status:   PENDING (like, espera al admin) | CONFIRMED (asignado) |
 //             DECLINED (otro fue asignado) | DISMISSED (descartado por el formador)
+// LOTE08 (L8-06): la entidad propone a un formador de su red impartirla, con
+// decision PROPUESTA y propuestaAt. Estados de una propuesta: PENDING (espera al
+// formador), CONFIRMED (aceptó: asignado), REJECTED (dijo que no, con
+// respondidaAt), WITHDRAWN (la entidad la retiró) y DECLINED (liberado después o
+// fuera de la red). Los lectores del «Me interesa» filtran decision LIKE: no las
+// ven. Como mucho una propuesta viva (PROPUESTA en PENDING) por formación: índice
+// único PARCIAL en SQL que Prisma no describe
+// (20261201090000_lote08_modelo: FormacionMatch_propuesta_viva_key). CHECK en la
+// base: LIKE y DISMISS no llevan propuestaAt ni respondidaAt y nunca están en
+// REJECTED ni WITHDRAWN.
 model FormacionMatch {
   id            String    @id @default(cuid())
   formacionId   String
@@ -1824,6 +1848,9 @@ model FormacionMatch {
   // otro, no se le repite el correo. Se pone en la misma escritura que el
   // DECLINED de la asignación (no mueve updatedAt aparte).
   noSeleccionadoAvisadoAt DateTime?
+  // LOTE08 (L8-06): cuándo se le propuso (solo PROPUESTA) y cuándo respondió el formador.
+  propuestaAt             DateTime?
+  respondidaAt            DateTime?
 
   @@unique([formacionId, trainerId]) // idempotencia: un swipe por formador/formación
   @@index([trainerId, status])
@@ -2759,9 +2786,113 @@ model DesbloqueoEvaluacion {
   razonamiento  String? // LOTE06 (RE2-09): ECHO, las respuestas del razonamiento que ya llegaron al servidor, con su hora de llegada (JSON); se vacía al guardar
   consumidaAt   DateTime?
   evaluacionId  String? // id de la fila de AcatEvaluation, EropEvaluation, EchoEvaluation o EvopEvaluation (según tipo)
+  // LOTE08 (L8-13): la petición de la empresa a una entidad por la que se pagó
+  // (PeticionEvaluacion.id). Con ella, pagador EMPRESA, sin solicitud del alumno
+  // y DISPONIBLE o CONSUMIDA (CHECK DesbloqueoEvaluacion_peticion_check). Las
+  // pestañas de evaluaciones del LOTE06 solo leen las que no la llevan.
+  peticionEvaluacionId String?  @unique
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
   @@index([orgId, estado])
   @@index([studentUserId, estado])
+}
+
+// =============================================================
+// LOTE08 (L8-03, L8-04, L8-11) · Colaboración entre una entidad y una empresa
+// =============================================================
+// Una fila por pareja. La pide cualquiera de las dos (origen) y la otra la
+// acepta o la rechaza; quien la pidió la retira mientras está pendiente; una vez
+// aceptada, cualquiera de las dos la termina. Solo ACEPTADA cuenta como vínculo
+// en los dos sentidos (lib/colaboraciones/lectura.ts); una PENDIENTE no abre
+// nada. perfilInterno: la empresa comparte su perfil interno con esta entidad
+// (solo con la colaboración ACEPTADA, o al pedirla ella). Sin FK. CHECK en la base.
+//   estado:            PENDIENTE | ACEPTADA | RECHAZADA | RETIRADA | TERMINADA
+//   origen:            ENTIDAD | EMPRESA (quién la pidió)
+//   terminadaPorParte: ENTIDAD | EMPRESA
+model ColaboracionEmpresa {
+  id                String    @id @default(cuid())
+  entityId          String // EntityProfile.userId (la entidad, nunca la persona con acceso)
+  companyId         String // CompanyProfile.userId
+  estado            String    @default("PENDIENTE")
+  origen            String
+  mensaje           String? // de quien la pide (hasta 500)
+  pedidaPor         String? // User.id de la persona que la pidió
+  pedidaAt          DateTime  @default(now())
+  respondidaAt      DateTime? // aceptada o rechazada
+  respondidaPor     String? // User.id de la persona que respondió
+  motivo            String? // del rechazo o de terminar (hasta 300)
+  retiradaAt        DateTime?
+  terminadaAt       DateTime?
+  terminadaPor      String? // User.id de la persona que la terminó
+  terminadaPorParte String?
+  perfilInterno     Boolean   @default(false)
+  perfilInternoAt   DateTime? // último cambio del interruptor
+  perfilInternoPor  String? // User.id de quien lo cambió
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@unique([entityId, companyId])
+  @@index([companyId, estado])
+  @@index([entityId, estado])
+}
+
+// =============================================================
+// LOTE08 (L8-13) · Evaluaciones que ofrece una entidad
+// =============================================================
+// Cuáles de las cuatro ofrece a las empresas con las que colabora, con una nota
+// opcional («Qué incluye»). Sin precio: la empresa paga los SkillPoints de la
+// plataforma (SkpPrice EVAL_<TIPO>). Sin FK. CHECK en la base.
+//   tipo: ACAT | EROP | ECHO | EVOP
+model EvaluacionEntidad {
+  id             String   @id @default(cuid())
+  entityId       String // EntityProfile.userId
+  tipo           String
+  activa         Boolean  @default(true)
+  nota           String? // hasta 300
+  actualizadaPor String? // User.id de la persona que la cambió
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([entityId, tipo])
+}
+
+// =============================================================
+// LOTE08 (L8-13) · Evaluaciones que una empresa pide a una entidad
+// =============================================================
+// Una fila por persona de la plantilla; las de un mismo envío comparten envioId.
+// La entidad la acepta (se cobra de la cartera de la EMPRESA y se crea su
+// DesbloqueoEvaluacion con peticionEvaluacionId) o la rechaza; la empresa la
+// retira mientras está pendiente; se anula si la persona ya la tenía, si salió
+// de la plantilla o si dejan de colaborar. skpPrecio: el precio por persona que
+// confirmó la empresa al pedirla (nunca paga más). sinSaldoAt: la última vez que
+// la entidad la aceptó sin saldo de la empresa (sigue PENDIENTE). Una sola
+// pendiente por empresa, entidad, persona y tipo: índice único PARCIAL en SQL que
+// Prisma no describe (PeticionEvaluacion_pendiente_key). Sin FK. CHECK en la base.
+//   estado:    PENDIENTE | ACEPTADA | RECHAZADA | RETIRADA | ANULADA
+//   anulacion: YA_DISPONIBLE | FUERA_DE_PLANTILLA | SIN_COLABORACION (solo ANULADA)
+model PeticionEvaluacion {
+  id            String    @id @default(cuid())
+  envioId       String // agrupa las líneas de un mismo envío (8 a 64 caracteres)
+  companyId     String // CompanyProfile.userId
+  entityId      String // EntityProfile.userId
+  studentUserId String // User.id de la persona de la plantilla
+  tipo          String // ACAT | EROP | ECHO | EVOP
+  estado        String    @default("PENDIENTE")
+  skpPrecio     Int
+  nota          String? // de la empresa (hasta 300)
+  creadaPor     String? // User.id de la persona de la empresa que la pidió
+  respondidaAt  DateTime?
+  respondidaPor String? // User.id de la persona de la entidad que respondió
+  motivo        String? // del rechazo (hasta 300)
+  anulacion     String?
+  retiradaAt    DateTime?
+  sinSaldoAt    DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([entityId, estado, createdAt])
+  @@index([companyId, entityId, createdAt])
+  @@index([envioId])
+  @@index([studentUserId])
 }

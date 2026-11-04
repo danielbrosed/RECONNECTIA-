@@ -2,11 +2,11 @@
 
 import { useMemo, useState } from "react";
 import { useEnvioUnico } from "@/app/_ui/useEnvioUnico";
-import { MESES_ES, DIAS_SEMANA } from "@/lib/schedule";
+import { MESES_ES, DIAS_SEMANA, MODO_SESION_LABELS } from "@/lib/schedule";
 import type { AgendaItemVM } from "@/lib/agenda";
 import type { AssignedFormacionVM } from "@/lib/formaciones";
 import { FORMACION_MODALITY_LABELS } from "@/lib/formaciones";
-import { diasDelCalendario, etiquetaSesion } from "@/lib/formaciones-sesiones-texto";
+import { diasDelCalendario, etiquetaHito, etiquetaSesion, textoHoraCalendario, type HitoCalendario } from "@/lib/formaciones-sesiones-texto";
 import { deleteAgendaItemAction } from "./actions";
 import AgendaEventModal from "./AgendaEventModal";
 
@@ -27,6 +27,8 @@ type Entry = {
   detail: string | null;
   /** LOTE07 (L7-09): «Sesión 2 de 3» en las formaciones por sesiones. */
   sesion?: string | null;
+  /** LOTE08 (L8-02): en una teleformación, el día que abre, el que cierra o los dos. */
+  hito?: HitoCalendario | null;
   item: AgendaItemVM | null; // solo entradas personales (para poder quitarlas)
   // Solo formaciones: true = asignada a ti (verde), false = «Me interesa» pendiente (gris).
   confirmed?: boolean;
@@ -81,6 +83,9 @@ export default function AgendaCalendar({
     // sesión con sus horas y «Sesión n de m» (los días entre sesiones quedan
     // vacíos); sin rondas (datos de antes), cada día del rango recortado al mes
     // (revisión R7C-05: sin perder los meses del final de un rango largo).
+    // LOTE08 (L8-02): una teleformación solo pinta el día que abre y el que
+    // cierra («Apertura», «Cierre» o «Abre y cierra este día», con su hora), y
+    // una sesión de Mixta dice al final del detalle si es presencial u online.
     for (const f of formaciones) {
       const detail = [
         f.clientName,
@@ -90,15 +95,17 @@ export default function AgendaCalendar({
         .filter(Boolean)
         .join(" · ");
       diasDelCalendario(f.fechas, { desde: monthFirst, hasta: monthLast }).forEach((d, i) => {
-        const time = d.desde && d.hasta ? `${d.desde} a ${d.hasta}` : d.desde ?? null;
+        const time = textoHoraCalendario(d);
+        const detalle = [detail, d.modo ? MODO_SESION_LABELS[d.modo] : null].filter(Boolean).join(" · ");
         push(Number(d.dia.slice(8, 10)), {
           key: `f-${f.id}-${d.dia}-${i}`,
           type: "formacion",
           title: f.title,
           time,
-          detail: detail || null,
+          detail: detalle || null,
           // Revisión R7C-06: una sesión sola no se numera («Sesión 1 de 1»).
           sesion: d.sesion && d.sesion.de > 1 ? etiquetaSesion(d.sesion.n, d.sesion.de) : null,
+          hito: d.hito ?? null,
           item: null,
           confirmed: f.confirmed,
         });
@@ -257,7 +264,7 @@ export default function AgendaCalendar({
                 {entradas.slice(0, 2).map((e) => (
                   <span
                     key={e.key}
-                    title={e.sesion ? `${e.title} · ${e.sesion}` : undefined}
+                    title={e.sesion ? `${e.title} · ${e.sesion}` : e.hito ? `${e.title} · ${etiquetaHito(e.hito)}` : undefined}
                     className={`block truncate text-[10px] leading-tight px-1 py-0.5 ${
                       e.type === "formacion"
                         ? e.confirmed
@@ -313,9 +320,13 @@ export default function AgendaCalendar({
                           : "Evento"}
                     </span>
                     <span className="font-medium">{e.title}</span>
-                    {(e.sesion || e.time || e.detail) && (
-                      <div className="text-xs text-[color:var(--color-mute)] mt-0.5" {...(e.sesion ? { "data-sesion-calendario": e.sesion } : {})}>
-                        {[e.sesion, e.time, e.detail].filter(Boolean).join(" · ")}
+                    {(e.sesion || e.hito || e.time || e.detail) && (
+                      <div
+                        className="text-xs text-[color:var(--color-mute)] mt-0.5"
+                        {...(e.sesion ? { "data-sesion-calendario": e.sesion } : {})}
+                        {...(e.hito ? { "data-hito-calendario": e.hito } : {})}
+                      >
+                        {[e.sesion ?? (e.hito ? etiquetaHito(e.hito) : null), e.time, e.detail].filter(Boolean).join(" · ")}
                       </div>
                     )}
                   </div>

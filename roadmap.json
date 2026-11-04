@@ -1,7 +1,7 @@
 {
   "$comment": "Single source of truth for the progress card and the README progress/roadmap sections. Edit, then run: node tools/progress.mjs",
   "product": "Reconnect.iA",
-  "updated": "2026-10-23",
+  "updated": "2026-11-04",
   "release": {
     "label": "V0",
     "status": "In production",
@@ -21,8 +21,8 @@
     {
       "id": "batches",
       "label": "Client change batches delivered",
-      "done": 7,
-      "total": 7,
+      "done": 8,
+      "total": 8,
       "unit": "batches",
       "segmented": true,
       "note": "Change requests from the operator since go-live, each one built, reviewed, regression-tested and deployed."
@@ -34,23 +34,23 @@
       "label": "user roles"
     },
     {
-      "value": "184",
+      "value": "186",
       "label": "pages"
     },
     {
-      "value": "125",
+      "value": "127",
       "label": "server-action modules"
     },
     {
-      "value": "94",
+      "value": "97",
       "label": "data models"
     },
     {
-      "value": "90",
+      "value": "92",
       "label": "migrations"
     },
     {
-      "value": "196k",
+      "value": "209k",
       "label": "lines of TypeScript"
     }
   ],
@@ -102,6 +102,12 @@
       "title": "Client change batch 7",
       "status": "done",
       "detail": "Trainers and entities can withdraw a pending request or invitation. Trainers pick one to three professions from the job catalogue, which drives a per-course affinity score: entities add trainers to a course from a searchable list ordered by fit, and trainers see the courses of their entities that match them and ask to join, with the entity approving. Course catalogue rebuilt to fit any screen with a large per-course scheduling button, delivery mode and hours as two linked dropdowns, session hours capped by the course, and dates read as numbered sessions everywhere instead of a from-to range."
+    },
+    {
+      "date": "2026-11",
+      "title": "Client change batch 8",
+      "status": "done",
+      "detail": "Entities search trainers by job hierarchy: a sector brings every profession under it and a specialty shows each match with its sector. E-learning courses open and close on a date and time instead of sessions, and blended sessions are marked on-site or online. Entities and companies can ask each other to collaborate; once they agree, the company picks a course or the entity schedules one for it, which the company has to accept. Entities propose a trainer from the scheduling form, the trainer accepts or declines, and the trainer can be changed later but not once the course has started. FUNDAE-subsidised courses cannot be cancelled within three days of starting, dates are checked for consistency on every screen, repeated sections were brought together, roles and permissions sit in one place on both profiles, companies choose whether to share their internal profile with each entity, and entities offer assessments to partner companies, paid by the company in SkillPoints."
     },
     {
       "date": "later",
