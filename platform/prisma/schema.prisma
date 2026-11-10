@@ -154,6 +154,10 @@ model StudentProfile {
 
   // Búsqueda de talento de empresas (OPT-OUT: por defecto visible; puede ocultarse).
   hideFromTalentSearch Boolean @default(false)
+  // LOTE09 (n10): el alumno deja que las entidades que ven el perfil interno de su
+  // empresa vean sus cursos por su cuenta y sus certificados (título, horas, estado y
+  // fecha). Apagado por defecto (OPT-IN); se cambia en «Privacidad y visibilidad».
+  compartirCursosConEntidades Boolean @default(false)
 
   // LOTE02 (AL8, E5, E6): empresa en la que dice trabajar (CompanyProfile.userId,
   // sin FK). El estado del vínculo ES su fila de MiembroPlantilla con esa empresa.
@@ -1665,8 +1669,26 @@ model Formacion {
   // LOTE08 (fase C, revisión): la «Nota para los formadores» de una convocatoria
   // de Teleformación con apertura y cierre, que no tiene ronda donde ir (las
   // demás modalidades la guardan en su ronda, rounds[0].note, y la dejan vacía).
-  // Nadie la lee. CHECK de longitud en la base (Formacion_notaConvocatoria_check).
+  // LOTE09 (d28): la nota de la convocatoria, siempre aquí. Con notaVisibleEmpresa
+  // (las escritas desde el LOTE 09) la lee también la empresa; las de antes, solo
+  // los formadores (lib/convocatoria-nota.ts). CHECK de longitud en la base
+  // (Formacion_notaConvocatoria_check).
   notaConvocatoria       String?
+  // LOTE09 (d28): la nota de la convocatoria la lee también la empresa (las escritas
+  // desde el LOTE 09); las de antes quedan en false. CHECK en la base
+  // (Formacion_notaVisibleEmpresa_check: solo con nota).
+  notaVisibleEmpresa       Boolean   @default(false)
+  // LOTE09 (B-H3): la convocatoria para una empresa se retiró al dejar de colaborar,
+  // no la retiró la entidad: cuándo y por qué vía (TERMINAR, al terminar la
+  // colaboración; GUION_LOTE09, las de antes). Solo en COMPANY_WITHDRAWN. CHECK en
+  // la base (Formacion_retiradaFin_check).
+  empresaRetiradaFinAt     DateTime?
+  empresaRetiradaFinOrigen String?
+  // LOTE09 (d27): cuándo confirmó la entidad «He hecho las gestiones en FUNDAE» al
+  // cancelar un curso FUNDAE a menos de 3 días de su inicio o ya empezado. Solo en
+  // una formación cerrada como cancelada (CHECK Formacion_cancelacionFundae_check);
+  // quién lo confirmó va en la auditoría (formacion.cancelar).
+  cancelacionFundaeConfirmadaAt DateTime?
   createdAt           DateTime  @default(now())
   updatedAt           DateTime  @updatedAt
 
@@ -1832,6 +1854,9 @@ model TrainerCourseCode {
 // (20261201090000_lote08_modelo: FormacionMatch_propuesta_viva_key). CHECK en la
 // base: LIKE y DISMISS no llevan propuestaAt ni respondidaAt y nunca están en
 // REJECTED ni WITHDRAWN.
+// LOTE09 (d26): DECLINED con liberadoAt = liberado (la entidad le liberó de esta
+// formación o la cambió a otro formador). Solo una fila DECLINED lleva la marca
+// (CHECK FormacionMatch_liberado_check): cualquier conversión la borra.
 model FormacionMatch {
   id            String    @id @default(cuid())
   formacionId   String
@@ -1851,6 +1876,11 @@ model FormacionMatch {
   // LOTE08 (L8-06): cuándo se le propuso (solo PROPUESTA) y cuándo respondió el formador.
   propuestaAt             DateTime?
   respondidaAt            DateTime?
+  // LOTE09 (d26): cuándo la entidad le liberó de esta formación (o la cambió a otro
+  // formador). Con fecha, la formación le vuelve a salir en el tablero (la regla
+  // «se ve en el tablero» de la fase B). Las liberaciones de antes se marcan desde
+  // la auditoría con scripts/lote09-liberados-previos.mjs.
+  liberadoAt              DateTime?
 
   @@unique([formacionId, trainerId]) // idempotencia: un swipe por formador/formación
   @@index([trainerId, status])
@@ -2791,6 +2821,10 @@ model DesbloqueoEvaluacion {
   // y DISPONIBLE o CONSUMIDA (CHECK DesbloqueoEvaluacion_peticion_check). Las
   // pestañas de evaluaciones del LOTE06 solo leen las que no la llevan.
   peticionEvaluacionId String?  @unique
+  // LOTE09 (d5): la persona aceptó, al empezar, que la entidad que gestiona esta
+  // evaluación (la de su peticionEvaluacionId) y su formador revisor vean el
+  // resultado. Solo con peticionEvaluacionId (CHECK). Sin ella, la entidad no la ve.
+  consentimientoGestoraAt DateTime?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
@@ -2829,6 +2863,11 @@ model ColaboracionEmpresa {
   perfilInterno     Boolean   @default(false)
   perfilInternoAt   DateTime? // último cambio del interruptor
   perfilInternoPor  String? // User.id de quien lo cambió
+  // LOTE09 (n7): la pareja pasó a colaborar con scripts/lote09-colaboraciones-previas.mjs
+  // porque ya trabajaba junta (sin que nadie la pidiera en pantalla: pedidaPor y
+  // respondidaPor vacíos). Null: la pidió una parte y la aceptó la otra; se vacía si
+  // se reabre.
+  migradaAt         DateTime?
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
 
@@ -2871,6 +2910,10 @@ model EvaluacionEntidad {
 // Prisma no describe (PeticionEvaluacion_pendiente_key). Sin FK. CHECK en la base.
 //   estado:    PENDIENTE | ACEPTADA | RECHAZADA | RETIRADA | ANULADA
 //   anulacion: YA_DISPONIBLE | FUERA_DE_PLANTILLA | SIN_COLABORACION (solo ANULADA)
+//              LOTE09 (G): también SIN_ASOCIACION y CANCELADA. Desde el LOTE09 la
+//              empresa ya no paga SkillPoints: la entidad le envía un presupuesto en
+//              euros (PresupuestoEvaluacion) y la pone en marcha (ConvocatoriaEvaluacion);
+//              las líneas nuevas llevan skpPrecio = 0 y nunca sinSaldoAt.
 model PeticionEvaluacion {
   id            String    @id @default(cuid())
   envioId       String // agrupa las líneas de un mismo envío (8 a 64 caracteres)
@@ -2888,6 +2931,10 @@ model PeticionEvaluacion {
   anulacion     String?
   retiradaAt    DateTime?
   sinSaldoAt    DateTime?
+  // LOTE09 (d5): el formador revisor de la entidad dio por bueno el informe de
+  // esta persona (solo en ACEPTADA). validadaPor = User.id del formador.
+  validadaAt    DateTime?
+  validadaPor   String?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
@@ -2895,4 +2942,137 @@ model PeticionEvaluacion {
   @@index([companyId, entityId, createdAt])
   @@index([envioId])
   @@index([studentUserId])
+}
+
+// =============================================================
+// LOTE09 (d10) · Información a la representación legal de los trabajadores (RLT)
+// =============================================================
+// Una por empresa y año (molde CreditoFormativo). La pone la empresa en «Mi empresa»
+// (bloque FUNDAE, junto al contrato general) y la entidad que la ve desde la ficha de
+// la empresa. Formacion.fundaeRltInfoAt se queda como histórico y manda donde tiene
+// dato (lib/empresa/rlt.ts). Sin FK. CHECK en la base (RltEmpresa_valores_check).
+//   origen: MANUAL | MIGRACION (scripts/lote09-rlt-empresa.mjs)
+model RltEmpresa {
+  id                     String    @id @default(cuid())
+  companyId              String // CompanyProfile.userId
+  anio                   Int
+  informadaAt            DateTime? // día (medianoche UTC del día de España, como fundaeRltInfoAt)
+  fileUrl                String?
+  fileName               String?
+  documentoAt            DateTime? // cuándo se subió el documento
+  actualizadoAt          DateTime?
+  actualizadoPorUserId   String? // User.id de la persona
+  actualizadoPorEntityId String? // EntityProfile.userId si lo cambió una entidad
+  origen                 String    @default("MANUAL")
+  version                Int       @default(0)
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+
+  @@unique([companyId, anio])
+}
+
+// =============================================================
+// LOTE09 (n6 b) · Contrato de encomienda de una entidad y una empresa para un año natural
+// =============================================================
+// La empresa sube el contrato firmado; la entidad lo marca como firmado con su fecha
+// (Aitor 4a = c). Vale con cualquiera de las dos mitades (P-D6). Se exige solo para pasar
+// una colaboración a ACEPTADA; nada se para al cambiar de año (Aitor 4b = b). Sin FK.
+// CHECK en la base (EncomiendaAnual_valores_check): cada mitad va entera y una fila
+// tiene al menos una.
+model EncomiendaAnual {
+  id                    String    @id @default(cuid())
+  entityId              String // EntityProfile.userId
+  companyId             String // CompanyProfile.userId
+  anio                  Int
+  // Mitad de la empresa: el contrato firmado.
+  fileUrl               String?
+  fileName              String?
+  subidoAt              DateTime?
+  subidoPorUserId       String? // User.id de la persona de la empresa
+  // Mitad de la entidad: la marca de firmado, con la fecha de la firma (día).
+  firmadaSegunEntidadAt DateTime?
+  marcadaAt             DateTime?
+  marcadaPorUserId      String? // User.id de la persona de la entidad
+  version               Int       @default(0)
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@unique([entityId, companyId, anio])
+  @@index([companyId, anio])
+}
+
+// =============================================================
+// LOTE09 (d3) · Evaluaciones que una entidad ha desbloqueado para ofrecer
+// =============================================================
+// Pago único por entidad y tipo (SkpPrice LICENCIA_EVAL_<TIPO>), de la cartera de
+// la ENTIDAD. Para siempre. Sin FK. CHECK en la base (LicenciaEvaluacionEntidad_valores_check).
+//   origen: PAGO | ADMIN
+model LicenciaEvaluacionEntidad {
+  id          String   @id @default(cuid())
+  entityId    String // EntityProfile.userId (la entidad, nunca la persona que pulsa)
+  tipo        String // ACAT | EROP | ECHO | EVOP
+  origen      String   @default("PAGO")
+  skpGastados Int      @default(0)
+  txId        String? // SkpTransaction.id del cargo
+  createdBy   String? // User.id de quien lo hizo
+  createdAt   DateTime @default(now())
+
+  @@unique([entityId, tipo])
+}
+
+// =============================================================
+// LOTE09 (d4, d5, d35) · La convocatoria de unas evaluaciones pedidas a una entidad
+// =============================================================
+// Una por petición de la empresa (PeticionEvaluacion.envioId). Su estado se deduce
+// de las líneas y de los presupuestos (lib/evaluaciones/convocatoria.ts); aquí, lo
+// que no se deduce: quién revisa, cuándo se puso en marcha, la cancelación y el
+// cierre. Sin FK. CHECK en la base (ConvocatoriaEvaluacion_valores_check).
+model ConvocatoriaEvaluacion {
+  id                String    @id @default(cuid())
+  envioId           String    @unique
+  companyId         String // CompanyProfile.userId
+  entityId          String // EntityProfile.userId
+  tipo              String
+  revisorTrainerId  String? // TrainerProfile.userId del formador revisor
+  revisorElegidoAt  DateTime?
+  revisorElegidoPor String? // User.id de la persona de la entidad
+  iniciadaAt        DateTime?
+  iniciadaPor       String?
+  canceladaAt       DateTime?
+  canceladaPor      String?
+  motivoCancelacion String? // 5 a 300
+  terminadaAt       DateTime? // ya no queda ningún informe por revisar
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@index([entityId, createdAt])
+  @@index([companyId, entityId])
+  @@index([revisorTrainerId])
+}
+
+// =============================================================
+// LOTE09 (d4) · Presupuestos en euros de una convocatoria de evaluaciones
+// =============================================================
+// Molde FormacionPresupuesto: cada envío es una fila; reenviar pasa la SENT a
+// REPLACED. La empresa responde a la vigente. Un solo SENT por convocatoria
+// (índice único parcial en SQL, PresupuestoEvaluacion_vigente_key, que Prisma no
+// describe). Sin FK. CHECK en la base (PresupuestoEvaluacion_valores_check).
+//   state: SENT | ACCEPTED | REJECTED | REPLACED
+model PresupuestoEvaluacion {
+  id                String    @id @default(cuid())
+  convocatoriaId    String // ConvocatoriaEvaluacion.id
+  companyId         String
+  entityId          String
+  amountCents       Int
+  note              String? // hasta 500
+  sentByUserId      String?
+  sentAt            DateTime
+  state             String    @default("SENT")
+  respondedAt       DateTime?
+  responseReason    String? // del rechazo, hasta 300
+  respondedByUserId String?
+  createdAt         DateTime  @default(now())
+
+  @@index([convocatoriaId, sentAt])
+  @@index([companyId, state])
 }

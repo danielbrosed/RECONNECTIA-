@@ -353,44 +353,49 @@ export default function FormacionSwipeDeck({
       <div className="relative">
         {/* Mazo de fondo estilo Tinder: las siguientes cartas asoman por arriba.
             Se ve que hay más, pero un velo de papel tapa su contenido. */}
-        {tercera && (
-          <div
-            aria-hidden
-            className="absolute left-0 right-0 top-0 pointer-events-none"
-            style={{
-              transform: "translateY(-22px) rotate(-1.2deg) scale(0.97)",
-              zIndex: 0,
-              transition: dragging ? "none" : "transform .28s var(--ease-micro)",
-            }}
-          >
-            <div className="relative">
-              <FormacionCard formacion={tercera} />
-              <div
-                className="absolute inset-0"
-                style={{ background: "var(--color-paper)", opacity: 0.9 }}
-              />
+        {/* LOTE09 (p5, Daniel: a): las cartas de fondo van en una capa que recorta solo lo que
+            sale por los lados (por arriba siguen asomando): en el móvil el tablero ya no se sale.
+            Sin z-index (no crea apilamiento: la carta de arriba sigue en z-10). */}
+        <div aria-hidden className="absolute inset-0 overflow-x-clip pointer-events-none" data-mazo-fondo>
+          {tercera && (
+            <div
+              aria-hidden
+              className="absolute left-0 right-0 top-0 pointer-events-none"
+              style={{
+                transform: "translateY(-22px) rotate(-1.2deg) scale(0.97)",
+                zIndex: 0,
+                transition: dragging ? "none" : "transform .28s var(--ease-micro)",
+              }}
+            >
+              <div className="relative">
+                <FormacionCard formacion={tercera} />
+                <div
+                  className="absolute inset-0"
+                  style={{ background: "var(--color-paper)", opacity: 0.9 }}
+                />
+              </div>
             </div>
-          </div>
-        )}
-        {next && (
-          <div
-            aria-hidden
-            className="absolute left-0 right-0 top-0 pointer-events-none"
-            style={{
-              transform: `translateY(${-12 + 8 * salida}px) rotate(${1.5 * (1 - salida)}deg) scale(${0.985 + 0.015 * salida})`,
-              zIndex: 1,
-              transition: dragging ? "none" : "transform .28s var(--ease-micro)",
-            }}
-          >
-            <div className="relative">
-              <FormacionCard formacion={next} />
-              <div
-                className="absolute inset-0"
-                style={{ background: "var(--color-paper)", opacity: 0.8 }}
-              />
+          )}
+          {next && (
+            <div
+              aria-hidden
+              className="absolute left-0 right-0 top-0 pointer-events-none"
+              style={{
+                transform: `translateY(${-12 + 8 * salida}px) rotate(${1.5 * (1 - salida)}deg) scale(${0.985 + 0.015 * salida})`,
+                zIndex: 1,
+                transition: dragging ? "none" : "transform .28s var(--ease-micro)",
+              }}
+            >
+              <div className="relative">
+                <FormacionCard formacion={next} />
+                <div
+                  className="absolute inset-0"
+                  style={{ background: "var(--color-paper)", opacity: 0.8 }}
+                />
+              </div>
             </div>
-          </div>
-        )}
+          )}
+        </div>
 
         {/* Carta superior (arrastrable) */}
         <div

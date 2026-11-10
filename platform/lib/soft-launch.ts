@@ -300,6 +300,9 @@ export const RUTAS_V0: Record<Role, readonly string[]> = {
     // LOTE05 (L5-07): el chat con una entidad (con el vínculo pendiente o aprobado;
     // la página lo comprueba en el servidor).
     "/formador/entidades/mensajes/*",
+    // LOTE09 (d5, K50): «Informes para revisar» y el informe de cada persona.
+    "/formador/evaluaciones",
+    "/formador/evaluaciones/*",
     ...CATALOGO,
     PERFIL_ENTIDAD,
   ],

@@ -92,13 +92,33 @@ export function primerSolape(sessions: Session[]): [number, number] | null {
 }
 
 /**
+ * LOTE09 (n4): la primera sesión (índice) que va antes que la anterior por día y,
+ * el mismo día, por hora de inicio; null si van en orden. Sin día, no cuenta; sin
+ * hora en alguna de las dos, solo el día.
+ */
+export function primeraFueraDeOrden(sessions: Session[]): number | null {
+  for (let i = 1; i < sessions.length; i++) {
+    const a = sessions[i - 1];
+    const b = sessions[i];
+    if (!a.day || !b.day) continue;
+    if (b.day < a.day) return i;
+    if (b.day === a.day && a.from && b.from && b.from < a.from) return i;
+  }
+  return null;
+}
+
+/** LOTE09 (n4): el aviso de la sesión fuera de orden (el de validateScheduleSequence). */
+export function textoFueraDeOrden(i: number): string {
+  return `La sesión ${i + 1} no puede ser anterior a la sesión ${i}.`;
+}
+
+/**
  * Mensajes que enseña el editor de sesiones. Vacío si todo cuadra.
  * LOTE07 (L7-07): con `horasMax` (las horas del curso), también si las sesiones
  * suman más (el mismo texto que dan las acciones del servidor).
- * LOTE08 (revisión RF1F-01): no avisa de sesiones metidas fuera de orden. Las
- * tres acciones que las guardan (convocatoria, fechas de la entidad y propuesta
- * de la empresa) las ordenan por día y hora antes de validarlas, así que lo
- * guardado siempre va en orden.
+ * LOTE09 (n4, Daniel: b): avisa de las sesiones fuera de orden por día y hora y
+ * no deja guardar; el servidor ya no las ordena. El aviso va el último, así el
+ * primero que usa validarRound para el solape no cambia.
  */
 export function problemasSesiones(sessions: Session[], opciones: { horasMax?: number | null } = {}): string[] {
   const out: string[] = [];
@@ -114,6 +134,8 @@ export function problemasSesiones(sessions: Session[], opciones: { horasMax?: nu
   }
   const exceso = excesoHoras(sessions, opciones.horasMax);
   if (exceso) out.push(mensajeExcesoHoras(exceso));
+  const fuera = primeraFueraDeOrden(sessions);
+  if (fuera !== null) out.push(textoFueraDeOrden(fuera));
   return out;
 }
 

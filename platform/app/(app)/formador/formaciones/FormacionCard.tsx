@@ -4,6 +4,7 @@ import { FORMACION_MODALITY_LABELS } from "@/lib/formaciones";
 import { pesoDistancia } from "@/lib/modalidades";
 import { etiquetasServicios } from "@/lib/servicios";
 import { lineasFechas } from "@/lib/formaciones-sesiones-texto";
+import { tituloNotaConvocatoria } from "@/lib/convocatoria-nota";
 
 /** LOTE07 (L7-09): sesiones que se listan en «Cuándo»; del resto, «y N sesiones más». */
 export const SESIONES_CARTA_MAX = 6;
@@ -74,6 +75,13 @@ export default function FormacionCard({ formacion, acciones }: { formacion: Form
         <p className="text-sm text-[color:var(--color-ink-soft)] mt-2 line-clamp-3">
           {formacion.description}
         </p>
+      )}
+      {/* LOTE09 (d28, Daniel: c): la nota de la convocatoria para el formador. */}
+      {formacion.nota && (
+        <div className="mt-3" data-nota-convocatoria>
+          <div className="eyebrow">{tituloNotaConvocatoria(formacion.entidad)}</div>
+          <p className="text-sm text-[color:var(--color-ink-soft)] mt-1 line-clamp-3 whitespace-pre-line [overflow-wrap:anywhere]">{formacion.nota}</p>
+        </div>
       )}
 
       <div className="mt-4 border border-[color:var(--color-line)] divide-y divide-[color:var(--color-line)]">
