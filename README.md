@@ -35,16 +35,16 @@ I designed and built the platform from scratch as its lead full-stack developer.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/progress/progress-dark.svg">
-  <img alt="Build progress: hardening and completion programme, 13 of 13 work packages; client change batches, 9 of 9 delivered; milestones from May 2026 to V1" src="docs/progress/progress-light.svg" width="100%">
+  <img alt="Build progress: hardening and completion programme, 13 of 13 work packages; client change batches, 10 of 10 delivered; milestones from May 2026 to V1" src="docs/progress/progress-light.svg" width="100%">
 </picture>
 
 <!-- progress:start -->
-_Last updated 10 Nov 2026 · V0 in production since 7 Jun 2026._
+_Last updated 11 Nov 2026 · V0 in production since 7 Jun 2026._
 
 | Track | Progress | |
 |---|---|---|
 | Hardening & completion programme | 13 / 13 work packages | **100%** |
-| Client change batches delivered | 9 / 9 batches | **100%** |
+| Client change batches delivered | 10 / 10 batches | **100%** |
 <!-- progress:end -->
 
 The card and both tables come from [`roadmap.json`](roadmap.json). When a milestone lands I edit that file and run [`tools/progress.mjs`](tools/progress.mjs), which redraws the card and rewrites these sections.
@@ -229,6 +229,7 @@ The rest of the source stays private. It is a live system with personal and empl
 | Oct 2026 | Client change batch 7 | Done | Trainers and entities can withdraw a pending request or invitation. Trainers pick one to three professions from the job catalogue, which drives a per-course affinity score: entities add trainers to a course from a searchable list ordered by fit, and trainers see the courses of their entities that match them and ask to join, with the entity approving. Course catalogue rebuilt to fit any screen with a large per-course scheduling button, delivery mode and hours as two linked dropdowns, session hours capped by the course, and dates read as numbered sessions everywhere instead of a from-to range. |
 | Nov 2026 | Client change batch 8 | Done | Entities search trainers by job hierarchy: a sector brings every profession under it and a specialty shows each match with its sector. E-learning courses open and close on a date and time instead of sessions, and blended sessions are marked on-site or online. Entities and companies can ask each other to collaborate; once they agree, the company picks a course or the entity schedules one for it, which the company has to accept. Entities propose a trainer from the scheduling form, the trainer accepts or declines, and the trainer can be changed later but not once the course has started. FUNDAE-subsidised courses cannot be cancelled within three days of starting, dates are checked for consistency on every screen, repeated sections were brought together, roles and permissions sit in one place on both profiles, companies choose whether to share their internal profile with each entity, and entities offer assessments to partner companies, paid by the company in SkillPoints. |
 | Nov 2026 | Client change batch 9 | Done | Courses that have started, and FUNDAE-subsidised courses within three days of starting, are locked for date and trainer changes, and a subsidised course is cancelled by confirming the paperwork has been done. Trainers get released courses back on their board and do not see started ones. Session notes reach the trainer and the company, a company and the chosen trainer agree on dates when a course has none, and e-learning courses for one company can take students from elsewhere, shown to the company by name only. Collaboration requires the yearly training agreement, the notice to the workers' legal representatives is kept once a year per company, students choose whether entities see the courses they take on their own, and the trainer search understands whole professions. Any entity can offer the four assessments for a one-off SkillPoints licence, companies accept a quote in euros, and a trainer from the entity reviews and validates each report. |
+| Nov 2026 | Client change batch 10 | Done | Entities see everything about trainers in one place on each course with the cancel button at the end, mark a course as FUNDAE-subsidised when they create it, and cannot create or withdraw a subsidised course within three days of its start. Scheduling shows four columns with the dates on every course and a monthly calendar. Dates proposed by the entity are only closed when the company and the trainer validate them or agree on others, and trainers are warned, or stopped for on-site courses, when a date clashes with work they already have. Entities offer assessments to the companies of their choice, name the professional responsible for each one and see earlier results of the staff of partner companies for the assessments they offer. A contact form reaches the team, and the public websites send people to take assessments inside the platform. |
 | Later | V1 | Planned | Meeting booking after a rejected validation, semantic matching, online payments and offer packs, automated ECOE validation, full back office, mobile app. |
 <!-- roadmap:end -->
 

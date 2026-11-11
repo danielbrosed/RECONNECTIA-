@@ -1,7 +1,7 @@
 {
   "$comment": "Single source of truth for the progress card and the README progress/roadmap sections. Edit, then run: node tools/progress.mjs",
   "product": "Reconnect.iA",
-  "updated": "2026-11-10",
+  "updated": "2026-11-11",
   "release": {
     "label": "V0",
     "status": "In production",
@@ -21,8 +21,8 @@
     {
       "id": "batches",
       "label": "Client change batches delivered",
-      "done": 9,
-      "total": 9,
+      "done": 10,
+      "total": 10,
       "unit": "batches",
       "segmented": true,
       "note": "Change requests from the operator since go-live, each one built, reviewed, regression-tested and deployed."
@@ -34,23 +34,23 @@
       "label": "user roles"
     },
     {
-      "value": "189",
+      "value": "192",
       "label": "pages"
     },
     {
-      "value": "129",
+      "value": "133",
       "label": "server-action modules"
     },
     {
-      "value": "102",
+      "value": "104",
       "label": "data models"
     },
     {
-      "value": "94",
+      "value": "95",
       "label": "migrations"
     },
     {
-      "value": "219k",
+      "value": "225k",
       "label": "lines of TypeScript"
     }
   ],
@@ -114,6 +114,12 @@
       "title": "Client change batch 9",
       "status": "done",
       "detail": "Courses that have started, and FUNDAE-subsidised courses within three days of starting, are locked for date and trainer changes, and a subsidised course is cancelled by confirming the paperwork has been done. Trainers get released courses back on their board and do not see started ones. Session notes reach the trainer and the company, a company and the chosen trainer agree on dates when a course has none, and e-learning courses for one company can take students from elsewhere, shown to the company by name only. Collaboration requires the yearly training agreement, the notice to the workers' legal representatives is kept once a year per company, students choose whether entities see the courses they take on their own, and the trainer search understands whole professions. Any entity can offer the four assessments for a one-off SkillPoints licence, companies accept a quote in euros, and a trainer from the entity reviews and validates each report."
+    },
+    {
+      "date": "2026-11",
+      "title": "Client change batch 10",
+      "status": "done",
+      "detail": "Entities see everything about trainers in one place on each course with the cancel button at the end, mark a course as FUNDAE-subsidised when they create it, and cannot create or withdraw a subsidised course within three days of its start. Scheduling shows four columns with the dates on every course and a monthly calendar. Dates proposed by the entity are only closed when the company and the trainer validate them or agree on others, and trainers are warned, or stopped for on-site courses, when a date clashes with work they already have. Entities offer assessments to the companies of their choice, name the professional responsible for each one and see earlier results of the staff of partner companies for the assessments they offer. A contact form reaches the team, and the public websites send people to take assessments inside the platform."
     },
     {
       "date": "later",

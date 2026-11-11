@@ -18,6 +18,10 @@ import AgendaEventModal from "./AgendaEventModal";
 // «Hoy» llega del servidor ya resuelto en hora de España (hoyEnMadrid): si se
 // calculara con new Date() aquí, servidor (UTC) y navegador no coincidirían
 // entre medianoche y la 1 o las 2, y la hidratación se desajustaría.
+//
+// LOTE10 (C5; diseno-lote10-C.md §6): las fechas que aún se están acordando con la
+// empresa (sin cerrar) y las de una propuesta del acuerdo salen con el borde de
+// puntos (ESTILO_EN_ACUERDO) y su rótulo; la leyenda lo explica.
 
 type Entry = {
   key: string;
@@ -32,6 +36,10 @@ type Entry = {
   item: AgendaItemVM | null; // solo entradas personales (para poder quitarlas)
   // Solo formaciones: true = asignada a ti (verde), false = «Me interesa» pendiente (gris).
   confirmed?: boolean;
+  /** LOTE10 (C5): fechas en acuerdo con la empresa, sin cerrar (borde de puntos). */
+  enAcuerdo?: boolean;
+  /** LOTE10 (C5): el día de una propuesta del acuerdo (no de las fechas puestas). */
+  propuesta?: boolean;
 };
 
 const pad2 = (n: number) => String(n).padStart(2, "0");
@@ -40,6 +48,7 @@ const ESTILO_PENDIENTE = "bg-[color:var(--color-paper-alt)] border border-[color
 const ESTILO_ASIGNADA =
   "bg-[color:var(--color-ok-soft)] border border-[color:var(--color-ok)] text-[color:var(--color-ok)]";
 const ESTILO_PERSONAL = "border border-dashed border-[color:var(--color-mute)]";
+const ESTILO_EN_ACUERDO = "bg-[color:var(--color-paper)] border-2 border-dotted border-[color:var(--color-ok)] text-[color:var(--color-ok)]";
 
 export default function AgendaCalendar({
   formaciones,
@@ -108,8 +117,27 @@ export default function AgendaCalendar({
           hito: d.hito ?? null,
           item: null,
           confirmed: f.confirmed,
+          enAcuerdo: f.enAcuerdo,
         });
       });
+      // LOTE10 (C5): la propuesta viva del acuerdo con otras fechas, con el mismo trazo.
+      if (f.propuestaEnAcuerdo) {
+        diasDelCalendario(f.propuestaEnAcuerdo, { desde: monthFirst, hasta: monthLast }).forEach((d, i) => {
+          push(Number(d.dia.slice(8, 10)), {
+            key: `a-${f.id}-${d.dia}-${i}`,
+            type: "formacion",
+            title: f.title,
+            time: textoHoraCalendario(d),
+            detail: [detail, d.modo ? MODO_SESION_LABELS[d.modo] : null].filter(Boolean).join(" · ") || null,
+            sesion: d.sesion && d.sesion.de > 1 ? etiquetaSesion(d.sesion.n, d.sesion.de) : null,
+            hito: d.hito ?? null,
+            item: null,
+            confirmed: true,
+            enAcuerdo: true,
+            propuesta: true,
+          });
+        });
+      }
     }
 
     // El índice va en la clave: las entradas antiguas no tienen id y pueden
@@ -206,6 +234,10 @@ export default function AgendaCalendar({
           Asignada a ti
         </li>
         <li className="inline-flex items-center gap-2">
+          <span aria-hidden className={`w-3.5 h-3.5 ${ESTILO_EN_ACUERDO}`} />
+          Fechas en acuerdo, sin cerrar
+        </li>
+        <li className="inline-flex items-center gap-2">
           <span aria-hidden className={`w-3.5 h-3.5 ${ESTILO_PERSONAL}`} />
           Tus eventos y tareas
         </li>
@@ -267,9 +299,11 @@ export default function AgendaCalendar({
                     title={e.sesion ? `${e.title} · ${e.sesion}` : e.hito ? `${e.title} · ${etiquetaHito(e.hito)}` : undefined}
                     className={`block truncate text-[10px] leading-tight px-1 py-0.5 ${
                       e.type === "formacion"
-                        ? e.confirmed
-                          ? ESTILO_ASIGNADA
-                          : ESTILO_PENDIENTE
+                        ? e.enAcuerdo
+                          ? ESTILO_EN_ACUERDO
+                          : e.confirmed
+                            ? ESTILO_ASIGNADA
+                            : ESTILO_PENDIENTE
                         : ESTILO_PERSONAL
                     }`}
                   >
@@ -312,9 +346,13 @@ export default function AgendaCalendar({
                   <div className="min-w-0">
                     <span className="text-[10px] font-mono uppercase text-[color:var(--color-mute)] mr-2">
                       {e.type === "formacion"
-                        ? e.confirmed
-                          ? "Asignada a ti"
-                          : "«Me interesa», pendiente"
+                        ? e.enAcuerdo
+                          ? e.propuesta
+                            ? "Propuesta en acuerdo"
+                            : "En acuerdo, sin cerrar"
+                          : e.confirmed
+                            ? "Asignada a ti"
+                            : "«Me interesa», pendiente"
                         : e.type === "tarea"
                           ? "Tarea"
                           : "Evento"}

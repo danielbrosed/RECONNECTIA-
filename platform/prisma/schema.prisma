@@ -244,6 +244,9 @@ model AcatEvaluation {
   desbloqueoId       String? @unique
   codigoVerificacion String? @unique
   visibleEnCv        Boolean @default(true)
+
+  // LOTE10 (G2): la última de cada persona, para las entidades que la ven (como ECHO y EVOP).
+  @@index([studentId, createdAt])
 }
 
 // Una evaluación EROP (instrumento proyectivo: Persona Bajo la Lluvia + Wartegg).
@@ -275,6 +278,9 @@ model EropEvaluation {
   desbloqueoId       String? @unique
   codigoVerificacion String? @unique
   visibleEnCv        Boolean @default(true)
+
+  // LOTE10 (G2): la última de cada persona, para las entidades que la ven (como ECHO y EVOP).
+  @@index([studentId, createdAt])
 }
 
 // =============================================================
@@ -1689,6 +1695,14 @@ model Formacion {
   // una formación cerrada como cancelada (CHECK Formacion_cancelacionFundae_check);
   // quién lo confirmó va en la auditoría (formacion.cancelar).
   cancelacionFundaeConfirmadaAt DateTime?
+  // LOTE10 (A2): la formación es FUNDAE. Todas las reglas FUNDAE la leen de aquí
+  // (antes, Course.bonifiable del curso de origen, leído en vivo). Las de antes la
+  // heredaron de su curso en la migración del lote; las que nacen por cualquier vía
+  // toman el bonifiable de su curso (P-A1) y, sin curso, false.
+  esFundae                 Boolean   @default(false)
+  // LOTE10 (C1): cuándo quedaron cerradas las fechas entre la empresa y el formador.
+  // Las que ya tenían fechas se dieron por acordadas en la migración (P-C1).
+  fechasAcordadasAt        DateTime?
   createdAt           DateTime  @default(now())
   updatedAt           DateTime  @updatedAt
 
@@ -2890,6 +2904,12 @@ model EvaluacionEntidad {
   activa         Boolean  @default(true)
   nota           String? // hasta 300
   actualizadaPor String? // User.id de la persona que la cambió
+  // LOTE10 (G4): el profesional responsable de la evaluación que ofrece: un formador
+  // de su red, validado y activo (User.id, sin FK); cuándo y quién (User.id de la
+  // persona de la entidad) lo eligió.
+  responsableTrainerId  String?
+  responsableElegidoAt  DateTime?
+  responsableElegidoPor String?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
@@ -2935,6 +2955,12 @@ model PeticionEvaluacion {
   // esta persona (solo en ACEPTADA). validadaPor = User.id del formador.
   validadaAt    DateTime?
   validadaPor   String?
+  // LOTE10 (G1): de dónde sale la línea: EMPRESA (la pidió la empresa; todas las de
+  // antes) o ENTIDAD (nace al aceptar la empresa una OfertaEvaluacionEmpresa, la de
+  // ofertaId). CHECK en la base (PeticionEvaluacion_origen_check y
+  // PeticionEvaluacion_oferta_check: la de una oferta lleva su oferta y nunca está pendiente).
+  origen        String    @default("EMPRESA")
+  ofertaId      String?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
@@ -2942,6 +2968,7 @@ model PeticionEvaluacion {
   @@index([companyId, entityId, createdAt])
   @@index([envioId])
   @@index([studentUserId])
+  @@index([ofertaId])
 }
 
 // =============================================================
@@ -3075,4 +3102,63 @@ model PresupuestoEvaluacion {
 
   @@index([convocatoriaId, sentAt])
   @@index([companyId, state])
+}
+
+// =============================================================
+// LOTE10 (G1) · Evaluaciones que una entidad ofrece por su cuenta a una empresa
+// =============================================================
+// La entidad elige el tipo (con licencia y ofrecido), pone un precio por persona en
+// céntimos de euro y, si quiere, una nota. La empresa la acepta, eligiendo a las
+// personas de su plantilla (envioId: las líneas de PeticionEvaluacion con origen
+// ENTIDAD que nacen entonces), o la rechaza con su motivo; la entidad la retira
+// mientras está pendiente (retiradaAt, retiradaPor). Una sola pendiente por entidad,
+// empresa y tipo: índice único PARCIAL en SQL que Prisma no describe
+// (OfertaEvaluacionEmpresa_pendiente_key). Sin FK. CHECK en la base
+// (OfertaEvaluacionEmpresa_valores_check y OfertaEvaluacionEmpresa_reglas_check).
+//   tipo:   ACAT | EROP | ECHO | EVOP
+//   estado: PENDIENTE | ACEPTADA | RECHAZADA | RETIRADA | ANULADA
+model OfertaEvaluacionEmpresa {
+  id                 String    @id @default(cuid())
+  entityId           String // EntityProfile.userId
+  companyId          String // CompanyProfile.userId
+  tipo               String
+  precioPersonaCents Int
+  nota               String?
+  estado             String    @default("PENDIENTE")
+  motivo             String?
+  envioId            String?   @unique // al aceptarla
+  createdBy          String? // User.id de la persona de la entidad que la ofreció (null si se suprimió)
+  createdAt          DateTime  @default(now())
+  respondidaAt       DateTime?
+  respondidaPor      String? // User.id de la persona de la empresa que respondió
+  retiradaAt         DateTime?
+  retiradaPor        String? // User.id de la persona de la entidad que la retiró
+  updatedAt          DateTime  @updatedAt
+
+  @@index([companyId, estado])
+  @@index([entityId, estado])
+}
+
+// =============================================================
+// LOTE10 (W4) · Formulario de contacto de la plataforma
+// =============================================================
+// Lo que alguien escribe en /contacto, con o sin sesión. Se guarda siempre y se
+// manda al correo de bienvenida; si el correo falla, el mensaje no se pierde
+// (correoEnviadoAt queda vacío). Administración lo lee en /admin/contacto. ipHash:
+// huella de la IP para el límite, nunca la IP. Sin FK. CHECK en la base
+// (MensajeContacto_valores_check).
+//   perfil: ALUMNO | EMPRESA | ENTIDAD | FORMADOR | OTRO
+model MensajeContacto {
+  id              String    @id @default(cuid())
+  nombre          String
+  correo          String
+  perfil          String
+  mensaje         String
+  userId          String? // User.id si escribió con sesión
+  ipHash          String?
+  correoEnviadoAt DateTime?
+  leidoAt         DateTime?
+  createdAt       DateTime  @default(now())
+
+  @@index([createdAt])
 }
